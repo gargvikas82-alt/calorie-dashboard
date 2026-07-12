@@ -82,3 +82,59 @@ export default function LogMealPage() {
     try {
       const parsed = await parseMeal(text);
       if (parsed.length === 0) {
+        setSaving(false);
+        return;
+      }
+
+      const saved = await saveMeal(parsed);
+      setResults(parsed);
+      setLoggedWindow(saved.type);
+      setShowSuccess(true);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Not signed in") {
+        setError("Please sign in first to log something.");
+      } else {
+        setError("Something went wrong. Try again.");
+        console.error("Save meal failed:", err);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submitMeal(mealInput);
+  }
+
+  function handleQuickAdd(text: string) {
+    setMealInput(text);
+    submitMeal(text);
+  }
+
+  function handleLogAnother() {
+    setShowSuccess(false);
+    setResults(null);
+    setMealInput("");
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-white to-[#f0fdf4]">
+      {showSuccess && <SuccessOverlay windowLabel={loggedWindow} onDismiss={handleLogAnother} />}
+
+      <div className="mx-auto w-full max-w-[375px] px-4 py-6">
+        <header className="mb-6 flex items-center gap-3">
+          <Link href="/" className="text-sm font-medium text-[#166534]">
+            ← Back
+          </Link>
+        </header>
+
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">What did you just have? 🍽️</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Type it like you&apos;d text a friend — we&apos;ll tag it as{" "}
+            <span className="font-medium text-[#166534]">{currentWindow}</span> automatically.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit}
