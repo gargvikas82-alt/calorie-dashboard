@@ -137,4 +137,71 @@ export default function LogMealPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit}
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="relative">
+            <input
+              id="meal"
+              type="text"
+              value={mealInput}
+              onChange={(e) => setMealInput(e.target.value)}
+              placeholder='"2 roti, dal, sabzi" or just "chai"'
+              autoFocus
+              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-base text-gray-900 shadow-sm outline-none focus:border-[#166534] focus:ring-1 focus:ring-[#166534]"
+            />
+          </div>
+
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={saving || !mealInput.trim()}
+            className="w-full rounded-2xl bg-[#166534] py-3.5 text-sm font-semibold text-white shadow-md transition-transform active:scale-[0.98] disabled:opacity-50"
+          >
+            {saving ? "Logging..." : "Log it"}
+          </button>
+        </form>
+
+        <div className="mt-6">
+          <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-gray-400">Quick tap</p>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_ADDS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                disabled={saving}
+                onClick={() => handleQuickAdd(item)}
+                className="rounded-full border border-green-200 bg-white px-3.5 py-2 text-xs font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {results && (
+          <section className="animate-fade-slide-up mt-8">
+            <h2 className="mb-1 text-base font-semibold text-gray-900">Just logged</h2>
+            <ul className="space-y-2">
+              {results.map((item) => (
+                <li
+                  key={item.name}
+                  className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm"
+                >
+                  <span className="text-sm text-gray-800">{item.name}</span>
+                  <div className="text-right text-xs text-gray-500">
+                    <p className="font-medium text-gray-700">{item.calories} kcal</p>
+                    <p>{item.protein}g protein</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm font-medium text-gray-700">
+              Total: {results.reduce((s, r) => s + r.calories, 0)} kcal ·{" "}
+              {results.reduce((s, r) => s + r.protein, 0)}g protein
+            </p>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
