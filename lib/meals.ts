@@ -17,6 +17,12 @@ export type LoggedMeal = {
   date: string;
 };
 
+export type DayTotal = {
+  date: string;
+  dayLabel: string;
+  calories: number;
+};
+
 export const CALORIE_GOAL = 2000;
 
 export const MACRO_GOALS = {
@@ -322,6 +328,45 @@ export async function getStreak(): Promise<number> {
   return streak;
 }
 
+// Last 7 days (including today) of total calories per day, for the
+// "Last 7 Days" trend section. Returns oldest -> newest.
+export async function getLast7DaysTotals(): Promise<DayTotal[]> {
+  const userId = await getUserId();
+
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - 6);
+  const startStr = startDate.toISOString().split("T")[0];
+
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("logged_date, calories")
+    .eq("user_id", userId)
+    .gte("logged_date", startStr);
+
+  if (error) throw error;
+
+  const totalsByDate = new Map<string, number>();
+  for (const row of (data ?? []) as { logged_date: string; calories: number }[]) {
+    const prev = totalsByDate.get(row.logged_date) ?? 0;
+    totalsByDate.set(row.logged_date, prev + Number(row.calories));
+  }
+
+  const days: DayTotal[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split("T")[0];
+    days.push({
+      date: dateStr,
+      dayLabel: d.toLocaleDateString([], { weekday: "short" }),
+      calories: Math.round(totalsByDate.get(dateStr) ?? 0),
+    });
+  }
+
+  return days;
+}
+
 export function buildMealSummary(meals: LoggedMeal[]) {
   const totals = computeTotals(meals);
   return {
@@ -361,7 +406,13 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
     const displayName = part.charAt(0).toUpperCase() + part.slice(1);
 
     const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
+
     if (aliasKey) {
+      // An alias matched. Commit to it — resolve against its exact target
+      // row, or drop straight to mock/generic. Do NOT fall through to
+      // direct substring matching below, which can opportunistically grab
+      // an unrelated library row (e.g. "dal" grabbing "Chana Dal" instead
+      // of the intended "Dal Tadka").
       const targetName = LIBRARY_ALIASES[aliasKey];
       const row = library.find((r) => r.name === targetName);
       if (row) {
@@ -374,8 +425,25 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
           fat: base.fat * qty,
         };
       }
+
+      const mockKey = Object.keys(MOCK_FOOD_DB).find((key) => part.includes(key));
+      if (mockKey) {
+        const base = MOCK_FOOD_DB[mockKey];
+        return {
+          name: displayName,
+          calories: base.calories * qty,
+          protein: base.protein * qty,
+          carbs: base.carbs * qty,
+          fat: base.fat * qty,
+        };
+      }
+
+      return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
     }
 
+    // No alias matched — try a direct substring match against any
+    // food_library item name (handles longer, specific phrases like
+    // "rajma" or "vada pav" that don't need an alias entry).
     const directMatch = library.find((r) => part.includes(r.name.split(" (")[0].toLowerCase()));
     if (directMatch) {
       const base = libraryRowToMacros(directMatch);
