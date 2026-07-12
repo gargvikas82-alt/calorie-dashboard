@@ -781,3 +781,86 @@ export default function Dashboard() {
                 </p>
               )}
               <p className="mt-3 text-center text-base text-gray-500">
+                {CALORIE_GOAL - totals.calories > 0
+                  ? `${CALORIE_GOAL - totals.calories} kcal remaining`
+                  : totals.calories > 0
+                    ? "Goal reached"
+                    : "Log a meal to get started"}
+              </p>
+            </section>
+
+            <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
+              <h2 className="text-lg font-semibold text-gray-900">Macros</h2>
+              {MACRO_CONFIG.map((macro) => (
+                <MacroBar
+                  key={macro.key}
+                  macroKey={macro.key}
+                  label={macro.label}
+                  icon={macro.icon}
+                  consumed={totals[macro.key]}
+                  goal={macro.goal}
+                  animate={mounted}
+                  stagger={macro.stagger}
+                  items={allItems}
+                  expanded={expandedMacro === macro.key}
+                  onToggle={() => toggleMacro(macro.key)}
+                />
+              ))}
+
+              <div className="border-t border-green-100/80 pt-4">
+                <p className="mb-3 text-center text-sm font-medium uppercase tracking-wide text-gray-400">Macro split</p>
+                <MacroDoughnut protein={totals.protein} carbs={totals.carbs} fat={totals.fat} animate={mounted} />
+              </div>
+            </section>
+
+            {weekTotals.length > 0 && <WeeklyTrend days={weekTotals} goal={CALORIE_GOAL} />}
+
+            <TodaysInsight meals={meals} hasMeals={hasMeals} />
+
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold text-gray-900">Today&apos;s timeline</h2>
+              {!hasMeals && (
+                <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-base text-gray-500 shadow-lg">
+                  Nothing logged yet. Tap + to add what you just ate.
+                </p>
+              )}
+              {meals.map((meal) => {
+                const colors = getWindowColor(meal.type);
+                return (
+                  <div
+                    key={meal.id}
+                    className="rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <span
+                        className={`inline-block rounded-full px-3 py-1 text-sm font-semibold text-white ${colors.activeBg}`}
+                      >
+                        {meal.type}
+                      </span>
+                      <span className="text-sm font-medium text-gray-400">{meal.time}</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {meal.items.map((item) => (
+                        <MealLogItem key={item.id} item={item} onChanged={refresh} />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </section>
+          </>
+        )}
+      </div>
+
+      {signedIn && (
+        <Link
+          href="/log"
+          aria-label="Log a meal"
+          className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg"
+        >
+          +
+        </Link>
+      )}
+    </div>
+  );
+}
