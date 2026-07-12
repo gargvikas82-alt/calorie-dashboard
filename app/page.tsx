@@ -307,4 +307,501 @@ function MacroDoughnut({
 
   const segments = [
     { value: protein, color: "#3b82f6", label: "Protein" },
-    { value: carbs,
+    { value: carbs, color: "#f59e0b", label: "Carbs" },
+    { value: fat, color: "#ef4444", label: "Fat" },
+  ];
+
+  if (total === 0) {
+    return (
+      <div className="flex flex-col items-center py-2">
+        <div className="flex h-32 w-32 items-center justify-center rounded-full border-[18px] border-gray-100">
+          <span className="text-xs text-gray-400">No data</span>
+        </div>
+      </div>
+    );
+  }
+
+  let cumulativeAngle = -90;
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative">
+        <svg width={size} height={size}>
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f3f4f6" strokeWidth={stroke} />
+          {segments.map((seg) => {
+            const pct = seg.value / total;
+            const dash = pct * circumference;
+            const rotation = cumulativeAngle;
+            cumulativeAngle += pct * 360;
+
+            return (
+              <circle
+                key={seg.label}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth={stroke}
+                strokeDasharray={`${animate ? dash : 0} ${circumference}`}
+                strokeLinecap="butt"
+                transform={`rotate(${rotation} ${size / 2} ${size / 2})`}
+                style={{ transition: "stroke-dasharray 1.5s cubic-bezier(0.4, 0, 0.2, 1)" }}
+              />
+            );
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-lg font-bold text-gray-900">{total}g</span>
+          <span className="text-[10px] text-gray-400">total macros</span>
+        </div>
+      </div>
+      <div className="flex flex-wrap justify-center gap-3">
+        {segments.map((seg) => (
+          <div key={seg.label} className="flex items-center gap-1.5 text-xs text-gray-600">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
+            {seg.label} <span className="font-medium">{Math.round((seg.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editName, setEditName] = useState(item.name);
+  const [editCalories, setEditCalories] = useState(String(item.calories));
+  const [swipeX, setSwipeX] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(0);
+
+  const ACTION_WIDTH = 88;
+
+  function handleDelete() {
+    setDeleting(true);
+    setTimeout(async () => {
+      try {
+        await deleteFoodItem(item.id);
+      } catch (err) {
+        console.error("Delete failed:", err);
+      }
+      onChanged();
+    }, 350);
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    const calories = parseInt(editCalories, 10);
+    if (!editName.trim() || isNaN(calories) || calories <= 0) return;
+    setSaving(true);
+    try {
+      await updateFoodItem(item.id, { name: editName.trim(), calories });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      console.error("Update failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    setTouchStartX(e.touches[0].clientX);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const delta = e.touches[0].clientX - touchStartX;
+    setSwipeX(Math.max(Math.min(delta, 0), -ACTION_WIDTH));
+  }
+
+  function handleTouchEnd() {
+    if (swipeX < -ACTION_WIDTH * 0.6) {
+      handleDelete();
+    } else {
+      setSwipeX(0);
+    }
+  }
+
+  if (editing) {
+    return (
+      <li className="rounded-xl border border-[#166534]/30 bg-white p-3 shadow-md">
+        <form onSubmit={handleSaveEdit} className="space-y-2">
+          <input
+            type="text"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:border-[#166534]"
+            placeholder="Food name"
+          />
+          <input
+            type="number"
+            value={editCalories}
+            onChange={(e) => setEditCalories(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:border-[#166534]"
+            placeholder="Calories"
+            min={1}
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 rounded-lg bg-[#166534] py-2 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setEditName(item.name);
+                setEditCalories(String(item.calories));
+              }}
+              className="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-medium text-gray-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className={`relative overflow-hidden rounded-xl ${deleting ? "animate-fade-out-delete" : ""}`}>
+      <div className="absolute right-0 top-0 flex h-full">
+        <button
+          type="button"
+          onClick={() => {
+            setSwipeX(0);
+            setEditing(true);
+          }}
+          className="flex w-11 items-center justify-center bg-amber-500 text-white"
+          aria-label="Edit item"
+        >
+          ✏️
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          className="flex w-11 items-center justify-center bg-red-500 text-white"
+          aria-label="Delete item"
+        >
+          🗑️
+        </button>
+      </div>
+
+      <div
+        className="relative flex items-center justify-between rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
+        style={{ transform: `translateX(${swipeX}px)` }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <span className="pr-2 text-sm text-gray-800">
+          {getFoodEmoji(item.name)} {item.name}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <div className="text-right text-xs text-gray-500">
+            <p className="font-medium text-gray-700">{item.calories} kcal</p>
+            <p>{item.protein}g protein</p>
+          </div>
+          <button type="button" onClick={() => setEditing(true)} className="ml-1 rounded p-1 text-sm opacity-60 hover:opacity-100" aria-label="Edit">
+            ✏️
+          </button>
+          <button type="button" onClick={handleDelete} className="rounded p-1 text-sm opacity-60 hover:opacity-100" aria-label="Delete">
+            🗑️
+          </button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boolean }) {
+  const [insight, setInsight] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasFetched = useRef(false);
+
+  const fetchInsight = useCallback(async () => {
+    if (!hasMeals) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const summary = buildMealSummary(meals);
+      const res = await fetch("/api/insight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(summary),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
+      setInsight(data.insight);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }, [meals, hasMeals]);
+
+  useEffect(() => {
+    if (!hasMeals) {
+      hasFetched.current = false;
+      setInsight(null);
+      setError(null);
+      return;
+    }
+    if (!hasFetched.current) {
+      hasFetched.current = true;
+      fetchInsight();
+    }
+  }, [hasMeals, fetchInsight]);
+
+  if (!hasMeals) return null;
+
+  return (
+    <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-semibold text-gray-900">🤖 Today&apos;s Insight</h2>
+        <button
+          type="button"
+          onClick={fetchInsight}
+          disabled={loading}
+          className="rounded-lg border border-green-200 bg-white px-2.5 py-1 text-xs font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
+        >
+          Refresh insight
+        </button>
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-3 py-4">
+          <div className="animate-spin-slow h-5 w-5 rounded-full border-2 border-green-200 border-t-[#166534]" />
+          <p className="text-sm text-gray-500">AI is thinking...</p>
+        </div>
+      )}
+
+      {!loading && error && <p className="text-sm text-red-600">{error}</p>}
+
+      {!loading && insight && !error && (
+        <p className="animate-fade-slide-up text-sm leading-relaxed text-gray-700">{insight}</p>
+      )}
+    </section>
+  );
+}
+
+export default function Dashboard() {
+  const [meals, setMeals] = useState<LoggedMeal[]>([]);
+  const [streak, setStreak] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const [loadingMeals, setLoadingMeals] = useState(true);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [expandedMacro, setExpandedMacro] = useState<MacroKey | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [data, streakCount] = await Promise.all([loadTodayMeals(), getStreak()]);
+      setMeals(data);
+      setStreak(streakCount);
+      setSignedIn(true);
+    } catch (err) {
+      if (!(err instanceof Error && err.message === "Not signed in")) {
+        console.error("Failed to load meals:", err);
+      }
+      setMeals([]);
+      setStreak(0);
+      setSignedIn(false);
+    } finally {
+      setLoadingMeals(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    setMounted(true);
+
+    const onUpdate = () => refresh();
+    window.addEventListener("meals-updated", onUpdate);
+    window.addEventListener("focus", onUpdate);
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
+      refresh();
+    });
+
+    return () => {
+      window.removeEventListener("meals-updated", onUpdate);
+      window.removeEventListener("focus", onUpdate);
+      authListener.subscription.unsubscribe();
+    };
+  }, [refresh]);
+
+  const totals = computeTotals(meals);
+  const allItems = getAllFoodItems(meals);
+  const hasMeals = meals.length > 0;
+  const calorieProgress = totals.calories / CALORIE_GOAL;
+  const nearGoal = calorieProgress >= 0.9;
+
+  useEffect(() => {
+    if (mounted && nearGoal) {
+      setShowConfetti(true);
+      const timer = setTimeout(() => setShowConfetti(false), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [mounted, nearGoal]);
+
+  async function handleClearToday() {
+    if (confirm("Clear all meals logged today?")) {
+      try {
+        await clearTodayMeals();
+        await refresh();
+        setExpandedMacro(null);
+      } catch (err) {
+        console.error("Clear failed:", err);
+      }
+    }
+  }
+
+  function toggleMacro(key: MacroKey) {
+    setExpandedMacro((prev) => (prev === key ? null : key));
+  }
+
+  return (
+    <div className="relative min-h-screen bg-gradient-to-b from-white to-[#f0fdf4] pb-24">
+      {showConfetti && <ConfettiBurst />}
+
+      <div className="mx-auto w-full max-w-[375px] px-4 py-6">
+        <header className="mb-6 flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Today</h1>
+            <p className="text-sm text-gray-500">Indian vegetarian meals</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <AuthButton />
+          </div>
+        </header>
+
+        {!loadingMeals && signedIn && (
+          <div className="mb-6 flex items-center justify-between">
+            <StreakBadge streak={streak} />
+            {hasMeals && (
+              <button
+                type="button"
+                onClick={handleClearToday}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:text-red-600"
+              >
+                Clear today
+              </button>
+            )}
+          </div>
+        )}
+
+        {!loadingMeals && signedIn === false && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-center shadow-lg">
+            <p className="text-sm font-medium text-amber-800">Sign in to start tracking your meals.</p>
+            <p className="mt-1 text-xs text-amber-700">
+              Use the Google sign-in button above — your data is saved to your account.
+            </p>
+          </div>
+        )}
+
+        {loadingMeals && (
+          <div className="mb-6 flex justify-center py-10">
+            <div className="animate-spin-slow h-6 w-6 rounded-full border-2 border-green-200 border-t-[#166534]" />
+          </div>
+        )}
+
+        {!loadingMeals && signedIn && (
+          <>
+            <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-6 shadow-lg">
+              <CalorieRing consumed={totals.calories} goal={CALORIE_GOAL} animate={mounted} />
+              {nearGoal && (
+                <p className="animate-fade-slide-up mt-3 text-center text-sm font-semibold text-orange-600">
+                  🎉 Goal almost reached!
+                </p>
+              )}
+              <p className="mt-3 text-center text-sm text-gray-500">
+                {CALORIE_GOAL - totals.calories > 0
+                  ? `${CALORIE_GOAL - totals.calories} kcal remaining`
+                  : totals.calories > 0
+                    ? "Goal reached"
+                    : "Log a meal to get started"}
+              </p>
+            </section>
+
+            <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
+              <h2 className="text-base font-semibold text-gray-900">Macros</h2>
+              {MACRO_CONFIG.map((macro) => (
+                <MacroBar
+                  key={macro.key}
+                  macroKey={macro.key}
+                  label={macro.label}
+                  icon={macro.icon}
+                  consumed={totals[macro.key]}
+                  goal={macro.goal}
+                  animate={mounted}
+                  stagger={macro.stagger}
+                  items={allItems}
+                  expanded={expandedMacro === macro.key}
+                  onToggle={() => toggleMacro(macro.key)}
+                />
+              ))}
+
+              <div className="border-t border-green-100/80 pt-4">
+                <p className="mb-3 text-center text-xs font-medium uppercase tracking-wide text-gray-400">Macro split</p>
+                <MacroDoughnut protein={totals.protein} carbs={totals.carbs} fat={totals.fat} animate={mounted} />
+              </div>
+            </section>
+
+            <TodaysInsight meals={meals} hasMeals={hasMeals} />
+
+            <section className="space-y-3">
+              <h2 className="text-base font-semibold text-gray-900">Today&apos;s timeline</h2>
+              {!hasMeals && (
+                <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-sm text-gray-500 shadow-lg">
+                  Nothing logged yet. Tap + to add what you just ate.
+                </p>
+              )}
+              {meals.map((meal) => {
+                const colors = getWindowColor(meal.type);
+                return (
+                  <div
+                    key={meal.id}
+                    className="rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <span
+                        className={`inline-block rounded-full px-3 py-1 text-xs font-semibold text-white ${colors.activeBg}`}
+                      >
+                        {meal.type}
+                      </span>
+                      <span className="text-xs font-medium text-gray-400">{meal.time}</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {meal.items.map((item) => (
+                        <MealLogItem key={item.id} item={item} onChanged={refresh} />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </section>
+          </>
+        )}
+      </div>
+
+      {signedIn && (
+        <Link
+          href="/log"
+          aria-label="Log a meal"
+          className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg"
+        >
+          +
+        </Link>
+      )}
+    </div>
+  );
+}
