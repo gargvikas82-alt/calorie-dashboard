@@ -6,6 +6,8 @@ import {
   parseMeal,
   saveMeal,
   getTimeWindowLabel,
+  getWindowColor,
+  TIME_WINDOWS,
   type FoodItem,
 } from "@/lib/meals";
 
@@ -44,16 +46,16 @@ function SuccessOverlay({
             />
           </svg>
         </div>
-        <h2 className="text-lg font-bold text-gray-900">Logged!</h2>
-        <p className="mt-1 text-sm text-gray-500">Tagged as {windowLabel} · saved to today</p>
+        <h2 className="text-xl font-bold text-gray-900">Logged!</h2>
+        <p className="mt-1 text-base text-gray-500">Tagged as {windowLabel} · saved to today</p>
         <div className="mt-6 flex flex-col gap-2">
-          <Link href="/" className="rounded-xl bg-[#166534] py-2.5 text-sm font-semibold text-white">
+          <Link href="/" className="rounded-xl bg-[#166534] py-2.5 text-base font-semibold text-white">
             View dashboard
           </Link>
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600"
+            className="rounded-xl border border-gray-200 py-2.5 text-base font-medium text-gray-600"
           >
             Log something else
           </button>
@@ -71,7 +73,9 @@ export default function LogMealPage() {
   const [error, setError] = useState<string | null>(null);
   const [loggedWindow, setLoggedWindow] = useState("");
 
-  const currentWindow = getTimeWindowLabel(new Date());
+  const autoWindow = getTimeWindowLabel(new Date());
+  const [selectedWindow, setSelectedWindow] = useState(autoWindow);
+  const isLateEntry = selectedWindow !== autoWindow;
 
   async function submitMeal(text: string) {
     if (!text.trim()) return;
@@ -86,7 +90,7 @@ export default function LogMealPage() {
         return;
       }
 
-      const saved = await saveMeal(parsed);
+      const saved = await saveMeal(parsed, selectedWindow);
       setResults(parsed);
       setLoggedWindow(saved.type);
       setShowSuccess(true);
@@ -116,6 +120,7 @@ export default function LogMealPage() {
     setShowSuccess(false);
     setResults(null);
     setMealInput("");
+    setSelectedWindow(autoWindow);
   }
 
   return (
@@ -124,17 +129,47 @@ export default function LogMealPage() {
 
       <div className="mx-auto w-full max-w-[375px] px-4 py-6">
         <header className="mb-6 flex items-center gap-3">
-          <Link href="/" className="text-sm font-medium text-[#166534]">
+          <Link href="/" className="text-base font-medium text-[#166534]">
             ← Back
           </Link>
         </header>
 
-        <div className="mb-6">
+        <div className="mb-5">
           <h1 className="text-2xl font-bold text-gray-900">What did you just have? 🍽️</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Type it like you&apos;d text a friend — we&apos;ll tag it as{" "}
-            <span className="font-medium text-[#166534]">{currentWindow}</span> automatically.
+          <p className="mt-1 text-lg text-gray-500">
+            Type it like you&apos;d text a friend.
           </p>
+        </div>
+
+        <div className="mb-6">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-medium uppercase tracking-wide text-gray-400">When did you eat this?</p>
+            {isLateEntry && (
+              <span className="text-sm font-medium text-orange-600">Logging for earlier</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {TIME_WINDOWS.map((windowLabel) => {
+              const colors = getWindowColor(windowLabel);
+              const isSelected = selectedWindow === windowLabel;
+              const isAuto = windowLabel === autoWindow;
+              return (
+                <button
+                  key={windowLabel}
+                  type="button"
+                  onClick={() => setSelectedWindow(windowLabel)}
+                  className={`rounded-full px-3.5 py-2 text-sm font-medium shadow-sm transition-colors ${
+                    isSelected
+                      ? `${colors.activeBg} text-white`
+                      : `border ${colors.border}/40 ${colors.bg} ${colors.text}`
+                  }`}
+                >
+                  {windowLabel}
+                  {isAuto && !isSelected && <span className="ml-1 opacity-60">· now</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -146,23 +181,23 @@ export default function LogMealPage() {
               onChange={(e) => setMealInput(e.target.value)}
               placeholder='"2 roti, dal, sabzi" or just "chai"'
               autoFocus
-              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-base text-gray-900 shadow-sm outline-none focus:border-[#166534] focus:ring-1 focus:ring-[#166534]"
+              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-lg text-gray-900 shadow-sm outline-none focus:border-[#166534] focus:ring-1 focus:ring-[#166534]"
             />
           </div>
 
-          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-base text-red-600">{error}</p>}
 
           <button
             type="submit"
             disabled={saving || !mealInput.trim()}
-            className="w-full rounded-2xl bg-[#166534] py-3.5 text-sm font-semibold text-white shadow-md transition-transform active:scale-[0.98] disabled:opacity-50"
+            className="w-full rounded-2xl bg-[#166534] py-3.5 text-base font-semibold text-white shadow-md transition-transform active:scale-[0.98] disabled:opacity-50"
           >
             {saving ? "Logging..." : "Log it"}
           </button>
         </form>
 
         <div className="mt-6">
-          <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-gray-400">Quick tap</p>
+          <p className="mb-2.5 text-sm font-medium uppercase tracking-wide text-gray-400">Quick tap</p>
           <div className="flex flex-wrap gap-2">
             {QUICK_ADDS.map((item) => (
               <button
@@ -170,7 +205,7 @@ export default function LogMealPage() {
                 type="button"
                 disabled={saving}
                 onClick={() => handleQuickAdd(item)}
-                className="rounded-full border border-green-200 bg-white px-3.5 py-2 text-xs font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
+                className="rounded-full border border-green-200 bg-white px-3.5 py-2 text-sm font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
               >
                 {item}
               </button>
@@ -180,22 +215,22 @@ export default function LogMealPage() {
 
         {results && (
           <section className="animate-fade-slide-up mt-8">
-            <h2 className="mb-1 text-base font-semibold text-gray-900">Just logged</h2>
+            <h2 className="mb-1 text-lg font-semibold text-gray-900">Just logged</h2>
             <ul className="space-y-2">
               {results.map((item) => (
                 <li
                   key={item.name}
                   className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm"
                 >
-                  <span className="text-sm text-gray-800">{item.name}</span>
-                  <div className="text-right text-xs text-gray-500">
+                  <span className="text-base text-gray-800">{item.name}</span>
+                  <div className="text-right text-sm text-gray-500">
                     <p className="font-medium text-gray-700">{item.calories} kcal</p>
                     <p>{item.protein}g protein</p>
                   </div>
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-sm font-medium text-gray-700">
+            <p className="mt-3 text-base font-medium text-gray-700">
               Total: {results.reduce((s, r) => s + r.calories, 0)} kcal ·{" "}
               {results.reduce((s, r) => s + r.protein, 0)}g protein
             </p>
