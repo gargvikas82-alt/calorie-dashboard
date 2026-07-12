@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import AuthButton from "@/components/AuthButton";
+import { supabase } from "@/lib/supabase-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CALORIE_GOAL,
@@ -405,6 +406,7 @@ function MealLogItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [editCalories, setEditCalories] = useState(String(item.calories));
   const [swipeX, setSwipeX] = useState(0);
@@ -414,19 +416,30 @@ function MealLogItem({
 
   function handleDelete() {
     setDeleting(true);
-    setTimeout(() => {
-      deleteFoodItem(item.id);
+    setTimeout(async () => {
+      try {
+        await deleteFoodItem(item.id);
+      } catch (err) {
+        console.error("Delete failed:", err);
+      }
       onChanged();
     }, 350);
   }
 
-  function handleSaveEdit(e: React.FormEvent) {
+  async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
     const calories = parseInt(editCalories, 10);
     if (!editName.trim() || isNaN(calories) || calories <= 0) return;
-    updateFoodItem(item.id, { name: editName.trim(), calories });
-    setEditing(false);
-    onChanged();
+    setSaving(true);
+    try {
+      await updateFoodItem(item.id, { name: editName.trim(), calories });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      console.error("Update failed:", err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -468,9 +481,10 @@ function MealLogItem({
           <div className="flex gap-2">
             <button
               type="submit"
-              className="flex-1 rounded-lg bg-[#166534] py-2 text-xs font-semibold text-white"
+              disabled={saving}
+              className="flex-1 rounded-lg bg-[#166534] py-2 text-xs font-semibold text-white disabled:opacity-50"
             >
-              Save
+              {saving ? "Saving..." : "Save"}
             </button>
             <button
               type="button"
@@ -641,11 +655,25 @@ function TodaysInsight({
 export default function Dashboard() {
   const [meals, setMeals] = useState<LoggedMeal[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [loadingMeals, setLoadingMeals] = useState(true);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [expandedMacro, setExpandedMacro] = useState<MacroKey | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  const refresh = useCallback(() => {
-    setMeals(loadTodayMeals());
+  const refresh = useCallback(async () => {
+    try {
+      const data = await loadTodayMeals();
+      setMeals(data);
+      setSignedIn(true);
+    } catch (err) {
+      if (!(err instanceof Error && err.message === "Not signed in")) {
+        console.error("Failed to load meals:", err);
+      }
+      setMeals([]);
+      setSignedIn(false);
+    } finally {
+      setLoadingMeals(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -655,160 +683,10 @@ export default function Dashboard() {
     const onUpdate = () => refresh();
     window.addEventListener("meals-updated", onUpdate);
     window.addEventListener("focus", onUpdate);
-    return () => {
-      window.removeEventListener("meals-updated", onUpdate);
-      window.removeEventListener("focus", onUpdate);
-    };
-  }, [refresh]);
 
-  const totals = computeTotals(meals);
-  const grouped = groupMealsByType(meals);
-  const allItems = getAllFoodItems(meals);
-  const hasMeals = meals.length > 0;
-  const calorieProgress = totals.calories / CALORIE_GOAL;
-  const nearGoal = calorieProgress >= 0.9;
-
-  useEffect(() => {
-    if (mounted && nearGoal) {
-      setShowConfetti(true);
-      const timer = setTimeout(() => setShowConfetti(false), 3500);
-      return () => clearTimeout(timer);
-    }
-  }, [mounted, nearGoal]);
-
-  function handleClearToday() {
-    if (confirm("Clear all meals logged today?")) {
-      clearTodayMeals();
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
       refresh();
-      setExpandedMacro(null);
-    }
-  }
+    });
 
-  function toggleMacro(key: MacroKey) {
-    setExpandedMacro((prev) => (prev === key ? null : key));
-  }
-
-  return (
-    <div className="relative min-h-screen bg-gradient-to-b from-white to-[#f0fdf4] pb-24">
-      {showConfetti && <ConfettiBurst />}
-
-      <div className="mx-auto w-full max-w-[375px] px-4 py-6">
-        <header className="mb-6 flex items-start justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Today</h1>
-            <p className="text-sm text-gray-500">Indian vegetarian meals</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <AuthButton />
-            {hasMeals && (
-              <button
-                type="button"
-                onClick={handleClearToday}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:text-red-600"
-              >
-                Clear today
-              </button>
-            )}
-          </div>
-        </header>
-
-        <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-6 shadow-lg">
-          <CalorieRing
-            consumed={totals.calories}
-            goal={CALORIE_GOAL}
-            animate={mounted}
-          />
-          {nearGoal && (
-            <p className="animate-fade-slide-up mt-3 text-center text-sm font-semibold text-orange-600">
-              🎉 Goal almost reached!
-            </p>
-          )}
-          <p className="mt-3 text-center text-sm text-gray-500">
-            {CALORIE_GOAL - totals.calories > 0
-              ? `${CALORIE_GOAL - totals.calories} kcal remaining`
-              : totals.calories > 0
-                ? "Goal reached"
-                : "Log a meal to get started"}
-          </p>
-        </section>
-
-        <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
-          <h2 className="text-base font-semibold text-gray-900">Macros</h2>
-          {MACRO_CONFIG.map((macro) => (
-            <MacroBar
-              key={macro.key}
-              macroKey={macro.key}
-              label={macro.label}
-              icon={macro.icon}
-              consumed={totals[macro.key]}
-              goal={macro.goal}
-              animate={mounted}
-              stagger={macro.stagger}
-              items={allItems}
-              expanded={expandedMacro === macro.key}
-              onToggle={() => toggleMacro(macro.key)}
-            />
-          ))}
-
-          <div className="border-t border-green-100/80 pt-4">
-            <p className="mb-3 text-center text-xs font-medium uppercase tracking-wide text-gray-400">
-              Macro split
-            </p>
-            <MacroDoughnut
-              protein={totals.protein}
-              carbs={totals.carbs}
-              fat={totals.fat}
-              animate={mounted}
-            />
-          </div>
-        </section>
-
-        <TodaysInsight meals={meals} hasMeals={hasMeals} />
-
-        <section className="space-y-6">
-          <h2 className="text-base font-semibold text-gray-900">Meal log</h2>
-          {!hasMeals && (
-            <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-sm text-gray-500 shadow-lg">
-              No meals logged yet. Tap + to add your first meal.
-            </p>
-          )}
-          {MEAL_TYPES.map((type) => {
-            const items = grouped[type];
-            if (items.length === 0) return null;
-            const colors = MEAL_TYPE_COLORS[type];
-
-            return (
-              <div
-                key={type}
-                className="rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg"
-              >
-                <span
-                  className={`mb-3 inline-block rounded-full px-3 py-1 text-xs font-semibold text-white ${colors.activeBg}`}
-                >
-                  {type}
-                </span>
-                <ul className="space-y-2">
-                  {items.map((item) => (
-                    <MealLogItem
-                      key={item.id}
-                      item={item}
-                      onChanged={refresh}
-                    />
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </section>
-      </div>
-
-      <Link
-        href="/log"
-        aria-label="Log a meal"
-        className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg"
-      >
-        +
-      </Link>
-    </div>
-  );
-}
+    return () => {
+      window.removeEventListener("m
