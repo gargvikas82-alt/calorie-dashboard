@@ -198,7 +198,7 @@ function groupRowsIntoMeals(rows: DbRow[], date: string): LoggedMeal[] {
     };
   });
 
-  meals.sort((a, b) => (a.id < b.id ? 1 : -1));
+  meals.sort((a, b) => (a.id < b.id ? -1 : 1));
   return meals;
 }
 
