@@ -64,17 +64,33 @@ export default function LogMealPage() {
   const [mealType, setMealType] = useState<MealType>("Lunch");
   const [results, setResults] = useState<Omit<FoodItem, "id">[] | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!mealInput.trim()) return;
 
     const parsed = mockParseMeal(mealInput);
     if (parsed.length === 0) return;
 
-    saveMeal(mealType, parsed);
-    setResults(parsed);
-    setShowSuccess(true);
+    setSaving(true);
+    setError(null);
+
+    try {
+      await saveMeal(mealType, parsed);
+      setResults(parsed);
+      setShowSuccess(true);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Not signed in") {
+        setError("Please sign in first to log a meal.");
+      } else {
+        setError("Something went wrong saving your meal. Try again.");
+        console.error("Save meal failed:", err);
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleLogAnother() {
@@ -138,11 +154,18 @@ export default function LogMealPage() {
             </div>
           </div>
 
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </p>
+          )}
+
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#166534] py-3 text-sm font-semibold text-white shadow-md transition-transform active:scale-[0.98]"
+            disabled={saving}
+            className="w-full rounded-xl bg-[#166534] py-3 text-sm font-semibold text-white shadow-md transition-transform active:scale-[0.98] disabled:opacity-50"
           >
-            Submit
+            {saving ? "Saving..." : "Submit"}
           </button>
         </form>
 
