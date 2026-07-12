@@ -1,7 +1,5 @@
 import { supabase } from "./supabase-client";
 
-export type MealType = "Breakfast" | "Lunch" | "Dinner" | "Snack";
-
 export type FoodItem = {
   id: string;
   name: string;
@@ -13,7 +11,8 @@ export type FoodItem = {
 
 export type LoggedMeal = {
   id: string;
-  type: MealType;
+  type: string;
+  time: string;
   items: FoodItem[];
   date: string;
 };
@@ -26,44 +25,41 @@ export const MACRO_GOALS = {
   fat: 65,
 } as const;
 
-export const MEAL_TYPES: MealType[] = [
-  "Breakfast",
-  "Lunch",
-  "Dinner",
-  "Snack",
-];
-
-export const MEAL_TYPE_COLORS: Record<
-  MealType,
+const WINDOW_COLORS: Record
+  string,
   { bg: string; text: string; border: string; activeBg: string }
 > = {
-  Breakfast: {
-    bg: "bg-orange-50",
-    text: "text-orange-700",
-    border: "border-orange-400",
-    activeBg: "bg-orange-500",
-  },
-  Lunch: {
-    bg: "bg-green-50",
-    text: "text-green-800",
-    border: "border-green-600",
-    activeBg: "bg-[#166534]",
-  },
-  Dinner: {
-    bg: "bg-purple-50",
-    text: "text-purple-700",
-    border: "border-purple-500",
-    activeBg: "bg-purple-600",
-  },
-  Snack: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-500",
-    activeBg: "bg-blue-500",
-  },
+  "Early Morning": { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-400", activeBg: "bg-indigo-500" },
+  Breakfast: { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-400", activeBg: "bg-orange-500" },
+  "Mid-Morning": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-400", activeBg: "bg-amber-500" },
+  Lunch: { bg: "bg-green-50", text: "text-green-800", border: "border-green-600", activeBg: "bg-[#166534]" },
+  Afternoon: { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-400", activeBg: "bg-teal-600" },
+  Evening: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-500", activeBg: "bg-blue-500" },
+  Dinner: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-500", activeBg: "bg-purple-600" },
+  "Late Night": { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-400", activeBg: "bg-slate-600" },
 };
 
-const MOCK_FOOD_DB: Record<
+export function getWindowColor(label: string) {
+  return WINDOW_COLORS[label] ?? WINDOW_COLORS["Late Night"];
+}
+
+export function getTimeWindowLabel(date: Date): string {
+  const hour = date.getHours() + date.getMinutes() / 60;
+  if (hour >= 4 && hour < 7) return "Early Morning";
+  if (hour >= 7 && hour < 10) return "Breakfast";
+  if (hour >= 10 && hour < 12) return "Mid-Morning";
+  if (hour >= 12 && hour < 15) return "Lunch";
+  if (hour >= 15 && hour < 17) return "Afternoon";
+  if (hour >= 17 && hour < 19) return "Evening";
+  if (hour >= 19 && hour < 22) return "Dinner";
+  return "Late Night";
+}
+
+export function formatClockTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+const MOCK_FOOD_DB: Record
   string,
   { calories: number; protein: number; carbs: number; fat: number }
 > = {
@@ -95,13 +91,14 @@ async function getUserId(): Promise<string> {
 
 type DbRow = {
   id: string;
-  meal_type: MealType;
+  meal_type: string;
   food_name: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
   logged_date: string;
+  created_at: string;
 };
 
 function rowToFoodItem(row: DbRow): FoodItem {
@@ -116,21 +113,28 @@ function rowToFoodItem(row: DbRow): FoodItem {
 }
 
 function groupRowsIntoMeals(rows: DbRow[], date: string): LoggedMeal[] {
-  const byType: Record<MealType, FoodItem[]> = {
-    Breakfast: [],
-    Lunch: [],
-    Dinner: [],
-    Snack: [],
-  };
+  const groups = new Map<string, DbRow[]>();
   for (const row of rows) {
-    byType[row.meal_type].push(rowToFoodItem(row));
+    const key = row.created_at;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(row);
   }
-  return MEAL_TYPES.filter((type) => byType[type].length > 0).map((type) => ({
-    id: `${type}-${date}`,
-    type,
-    items: byType[type],
-    date,
-  }));
+
+  const meals: LoggedMeal[] = Array.from(groups.entries()).map(
+    ([createdAt, groupRows]) => {
+      const time = new Date(createdAt);
+      return {
+        id: createdAt,
+        type: groupRows[0].meal_type,
+        time: formatClockTime(time),
+        items: groupRows.map(rowToFoodItem),
+        date,
+      };
+    }
+  );
+
+  meals.sort((a, b) => (a.id < b.id ? 1 : -1));
+  return meals;
 }
 
 export async function loadTodayMeals(): Promise<LoggedMeal[]> {
@@ -148,15 +152,16 @@ export async function loadTodayMeals(): Promise<LoggedMeal[]> {
 }
 
 export async function saveMeal(
-  type: MealType,
   items: Omit<FoodItem, "id">[]
 ): Promise<LoggedMeal> {
   const userId = await getUserId();
   const today = getTodayDate();
+  const now = new Date();
+  const windowLabel = getTimeWindowLabel(now);
 
   const rows = items.map((item) => ({
     user_id: userId,
-    meal_type: type,
+    meal_type: windowLabel,
     food_name: item.name,
     calories: item.calories,
     protein: item.protein,
@@ -174,10 +179,14 @@ export async function saveMeal(
 
   window.dispatchEvent(new Event("meals-updated"));
 
+  const inserted = data as DbRow[];
+  const createdAt = inserted[0]?.created_at ?? now.toISOString();
+
   return {
-    id: `${type}-${today}`,
-    type,
-    items: (data as DbRow[]).map(rowToFoodItem),
+    id: createdAt,
+    type: windowLabel,
+    time: formatClockTime(new Date(createdAt)),
+    items: inserted.map(rowToFoodItem),
     date: today,
   };
 }
@@ -237,23 +246,52 @@ export async function updateFoodItem(
   window.dispatchEvent(new Event("meals-updated"));
 }
 
+export async function getStreak(): Promise<number> {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("logged_date")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  const dateSet = new Set((data ?? []).map((r) => r.logged_date as string));
+  if (dateSet.size === 0) return 0;
+
+  const todayStr = getTodayDate();
+  const cursor = new Date(todayStr + "T00:00:00");
+  if (!dateSet.has(todayStr)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let streak = 0;
+  while (true) {
+    const key = cursor.toISOString().split("T")[0];
+    if (dateSet.has(key)) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 export function buildMealSummary(meals: LoggedMeal[]) {
   const totals = computeTotals(meals);
-  const grouped = groupMealsByType(meals);
   return {
     totals,
-    meals: MEAL_TYPES.filter((type) => grouped[type].length > 0).map(
-      (type) => ({
-        type,
-        items: grouped[type].map((item) => ({
-          name: item.name,
-          calories: item.calories,
-          protein: item.protein,
-          carbs: item.carbs,
-          fat: item.fat,
-        })),
-      })
-    ),
+    meals: meals.map((meal) => ({
+      type: meal.type,
+      time: meal.time,
+      items: meal.items.map((item) => ({
+        name: item.name,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+      })),
+    })),
   };
 }
 
@@ -298,21 +336,6 @@ export function computeTotals(meals: LoggedMeal[]) {
       }),
       { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
-}
-
-export function groupMealsByType(
-  meals: LoggedMeal[]
-): Record<MealType, FoodItem[]> {
-  const groups: Record<MealType, FoodItem[]> = {
-    Breakfast: [],
-    Lunch: [],
-    Dinner: [],
-    Snack: [],
-  };
-  for (const meal of meals) {
-    groups[meal.type].push(...meal.items);
-  }
-  return groups;
 }
 
 export function getAllFoodItems(meals: LoggedMeal[]): FoodItem[] {
