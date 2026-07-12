@@ -6,10 +6,7 @@ import { supabase } from "@/lib/supabase-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CALORIE_GOAL,
-  MEAL_TYPES,
-  MEAL_TYPE_COLORS,
   MACRO_GOALS,
-  type MealType,
   type FoodItem,
   buildMealSummary,
   clearTodayMeals,
@@ -19,7 +16,8 @@ import {
   getFoodEmoji,
   getMacroTrafficColor,
   getRingGradientId,
-  groupMealsByType,
+  getStreak,
+  getWindowColor,
   loadTodayMeals,
   updateFoodItem,
   type LoggedMeal,
@@ -162,14 +160,7 @@ function CalorieRing({
             <stop offset="100%" stopColor="#dc2626" />
           </linearGradient>
         </defs>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#e5e7eb"
-          strokeWidth={stroke}
-        />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -180,15 +171,25 @@ function CalorieRing({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          style={{
-            transition: "stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)",
-          }}
+          style={{ transition: "stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)" }}
         />
       </svg>
       <div className="absolute text-center">
         <p className="text-3xl font-bold text-gray-900">{displayCalories}</p>
         <p className="text-sm text-gray-500">/ {goal} kcal</p>
       </div>
+    </div>
+  );
+}
+
+function StreakBadge({ streak }: { streak: number }) {
+  if (streak <= 0) return null;
+  return (
+    <div className="animate-fade-slide-up flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-1.5 shadow-sm">
+      <span className="text-base">🔥</span>
+      <span className="text-sm font-semibold text-orange-700">
+        {streak} day{streak > 1 ? "s" : ""}
+      </span>
     </div>
   );
 }
@@ -247,31 +248,20 @@ function MacroBar({
       className={`animate-macro-slide-in rounded-xl bg-white/50 ${visible ? "opacity-100" : ""}`}
       style={{ animationDelay: `${stagger}ms` }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full text-left"
-        aria-expanded={expanded}
-      >
+      <button type="button" onClick={onToggle} className="w-full text-left" aria-expanded={expanded}>
         <div className="mb-1 flex justify-between text-sm">
           <span className="font-medium text-gray-700">
             {icon} {label}
           </span>
           <span className="text-gray-500">
             {consumed}g / {goal}g
-            <span className="ml-1 text-xs text-gray-400">
-              {expanded ? "▲" : "▼"}
-            </span>
+            <span className="ml-1 text-xs text-gray-400">{expanded ? "▲" : "▼"}</span>
           </span>
         </div>
         <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
           <div
             className="h-full rounded-full"
-            style={{
-              width: `${width}%`,
-              backgroundColor: color,
-              transition: "width 1.2s cubic-bezier(0.4, 0, 0.2, 1)",
-            }}
+            style={{ width: `${width}%`, backgroundColor: color, transition: "width 1.2s cubic-bezier(0.4, 0, 0.2, 1)" }}
           />
         </div>
       </button>
@@ -283,16 +273,11 @@ function MacroBar({
               <li className="text-xs text-gray-400">No contributions yet</li>
             ) : (
               contributors.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-xs"
-                >
+                <li key={item.id} className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-xs">
                   <span className="text-gray-700">
                     {getFoodEmoji(item.name)} {item.name}
                   </span>
-                  <span className="font-medium text-gray-600">
-                    {item[macroKey]}g
-                  </span>
+                  <span className="font-medium text-gray-600">{item[macroKey]}g</span>
                 </li>
               ))
             )}
@@ -322,371 +307,4 @@ function MacroDoughnut({
 
   const segments = [
     { value: protein, color: "#3b82f6", label: "Protein" },
-    { value: carbs, color: "#f59e0b", label: "Carbs" },
-    { value: fat, color: "#ef4444", label: "Fat" },
-  ];
-
-  if (total === 0) {
-    return (
-      <div className="flex flex-col items-center py-2">
-        <div className="flex h-32 w-32 items-center justify-center rounded-full border-[18px] border-gray-100">
-          <span className="text-xs text-gray-400">No data</span>
-        </div>
-      </div>
-    );
-  }
-
-  let cumulativeAngle = -90;
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="relative">
-        <svg width={size} height={size}>
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="#f3f4f6"
-            strokeWidth={stroke}
-          />
-          {segments.map((seg) => {
-            const pct = seg.value / total;
-            const dash = pct * circumference;
-            const rotation = cumulativeAngle;
-            cumulativeAngle += pct * 360;
-
-            return (
-              <circle
-                key={seg.label}
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={seg.color}
-                strokeWidth={stroke}
-                strokeDasharray={`${animate ? dash : 0} ${circumference}`}
-                strokeLinecap="butt"
-                transform={`rotate(${rotation} ${size / 2} ${size / 2})`}
-                style={{
-                  transition:
-                    "stroke-dasharray 1.5s cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              />
-            );
-          })}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-bold text-gray-900">{total}g</span>
-          <span className="text-[10px] text-gray-400">total macros</span>
-        </div>
-      </div>
-      <div className="flex flex-wrap justify-center gap-3">
-        {segments.map((seg) => (
-          <div key={seg.label} className="flex items-center gap-1.5 text-xs text-gray-600">
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: seg.color }}
-            />
-            {seg.label}{" "}
-            <span className="font-medium">{Math.round((seg.value / total) * 100)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MealLogItem({
-  item,
-  onChanged,
-}: {
-  item: FoodItem;
-  onChanged: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editName, setEditName] = useState(item.name);
-  const [editCalories, setEditCalories] = useState(String(item.calories));
-  const [swipeX, setSwipeX] = useState(0);
-  const [touchStartX, setTouchStartX] = useState(0);
-
-  const ACTION_WIDTH = 88;
-
-  function handleDelete() {
-    setDeleting(true);
-    setTimeout(async () => {
-      try {
-        await deleteFoodItem(item.id);
-      } catch (err) {
-        console.error("Delete failed:", err);
-      }
-      onChanged();
-    }, 350);
-  }
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    const calories = parseInt(editCalories, 10);
-    if (!editName.trim() || isNaN(calories) || calories <= 0) return;
-    setSaving(true);
-    try {
-      await updateFoodItem(item.id, { name: editName.trim(), calories });
-      setEditing(false);
-      onChanged();
-    } catch (err) {
-      console.error("Update failed:", err);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    setTouchStartX(e.touches[0].clientX);
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    const delta = e.touches[0].clientX - touchStartX;
-    setSwipeX(Math.max(Math.min(delta, 0), -ACTION_WIDTH));
-  }
-
-  function handleTouchEnd() {
-    if (swipeX < -ACTION_WIDTH * 0.6) {
-      handleDelete();
-    } else {
-      setSwipeX(0);
-    }
-  }
-
-  if (editing) {
-    return (
-      <li className="rounded-xl border border-[#166534]/30 bg-white p-3 shadow-md">
-        <form onSubmit={handleSaveEdit} className="space-y-2">
-          <input
-            type="text"
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:border-[#166534]"
-            placeholder="Food name"
-          />
-          <input
-            type="number"
-            value={editCalories}
-            onChange={(e) => setEditCalories(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:border-[#166534]"
-            placeholder="Calories"
-            min={1}
-          />
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 rounded-lg bg-[#166534] py-2 text-xs font-semibold text-white disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false);
-                setEditName(item.name);
-                setEditCalories(String(item.calories));
-              }}
-              className="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-medium text-gray-600"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </li>
-    );
-  }
-
-  return (
-    <li
-      className={`relative overflow-hidden rounded-xl ${deleting ? "animate-fade-out-delete" : ""}`}
-    >
-      <div className="absolute right-0 top-0 flex h-full">
-        <button
-          type="button"
-          onClick={() => {
-            setSwipeX(0);
-            setEditing(true);
-          }}
-          className="flex w-11 items-center justify-center bg-amber-500 text-white"
-          aria-label="Edit item"
-        >
-          ✏️
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          className="flex w-11 items-center justify-center bg-red-500 text-white"
-          aria-label="Delete item"
-        >
-          🗑️
-        </button>
-      </div>
-
-      <div
-        className="relative flex items-center justify-between rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
-        style={{ transform: `translateX(${swipeX}px)` }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <span className="pr-2 text-sm text-gray-800">
-          {getFoodEmoji(item.name)} {item.name}
-        </span>
-        <div className="flex shrink-0 items-center gap-1">
-          <div className="text-right text-xs text-gray-500">
-            <p className="font-medium text-gray-700">{item.calories} kcal</p>
-            <p>{item.protein}g protein</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="ml-1 rounded p-1 text-sm opacity-60 hover:opacity-100"
-            aria-label="Edit"
-          >
-            ✏️
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="rounded p-1 text-sm opacity-60 hover:opacity-100"
-            aria-label="Delete"
-          >
-            🗑️
-          </button>
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function TodaysInsight({
-  meals,
-  hasMeals,
-}: {
-  meals: LoggedMeal[];
-  hasMeals: boolean;
-}) {
-  const [insight, setInsight] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasFetched = useRef(false);
-
-  const fetchInsight = useCallback(async () => {
-    if (!hasMeals) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      const summary = buildMealSummary(meals);
-      const res = await fetch("/api/insight", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(summary),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
-      setInsight(data.insight);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }, [meals, hasMeals]);
-
-  useEffect(() => {
-    if (!hasMeals) {
-      hasFetched.current = false;
-      setInsight(null);
-      setError(null);
-      return;
-    }
-    if (!hasFetched.current) {
-      hasFetched.current = true;
-      fetchInsight();
-    }
-  }, [hasMeals, fetchInsight]);
-
-  if (!hasMeals) return null;
-
-  return (
-    <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-900">
-          🤖 Today&apos;s Insight
-        </h2>
-        <button
-          type="button"
-          onClick={fetchInsight}
-          disabled={loading}
-          className="rounded-lg border border-green-200 bg-white px-2.5 py-1 text-xs font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
-        >
-          Refresh insight
-        </button>
-      </div>
-
-      {loading && (
-        <div className="flex items-center gap-3 py-4">
-          <div className="animate-spin-slow h-5 w-5 rounded-full border-2 border-green-200 border-t-[#166534]" />
-          <p className="text-sm text-gray-500">AI is thinking...</p>
-        </div>
-      )}
-
-      {!loading && error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
-
-      {!loading && insight && !error && (
-        <p className="animate-fade-slide-up text-sm leading-relaxed text-gray-700">
-          {insight}
-        </p>
-      )}
-    </section>
-  );
-}
-
-export default function Dashboard() {
-  const [meals, setMeals] = useState<LoggedMeal[]>([]);
-  const [mounted, setMounted] = useState(false);
-  const [loadingMeals, setLoadingMeals] = useState(true);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [expandedMacro, setExpandedMacro] = useState<MacroKey | null>(null);
-  const [showConfetti, setShowConfetti] = useState(false);
-
-  const refresh = useCallback(async () => {
-    try {
-      const data = await loadTodayMeals();
-      setMeals(data);
-      setSignedIn(true);
-    } catch (err) {
-      if (!(err instanceof Error && err.message === "Not signed in")) {
-        console.error("Failed to load meals:", err);
-      }
-      setMeals([]);
-      setSignedIn(false);
-    } finally {
-      setLoadingMeals(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    setMounted(true);
-
-    const onUpdate = () => refresh();
-    window.addEventListener("meals-updated", onUpdate);
-    window.addEventListener("focus", onUpdate);
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-      refresh();
-    });
-
-    return () => {
-      window.removeEventListener("m
+    { value: carbs,
