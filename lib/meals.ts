@@ -178,4 +178,275 @@ function groupRowsIntoMeals(rows: DbRow[], date: string): LoggedMeal[] {
     groups.get(key)!.push(row);
   }
 
-  const meals: LoggedMeal[] =
+  const meals: LoggedMeal[] = Array.from(groups.entries()).map(([createdAt, groupRows]) => {
+    const time = new Date(createdAt);
+    return {
+      id: createdAt,
+      type: groupRows[0].meal_type,
+      time: formatClockTime(time),
+      items: groupRows.map(rowToFoodItem),
+      date,
+    };
+  });
+
+  meals.sort((a, b) => (a.id < b.id ? 1 : -1));
+  return meals;
+}
+
+export async function loadTodayMeals(): Promise<LoggedMeal[]> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("logged_date", today)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return groupRowsIntoMeals((data ?? []) as DbRow[], today);
+}
+
+export async function saveMeal(items: Omit<FoodItem, "id">[]): Promise<LoggedMeal> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+  const now = new Date();
+  const windowLabel = getTimeWindowLabel(now);
+
+  const rows = items.map((item) => ({
+    user_id: userId,
+    meal_type: windowLabel,
+    food_name: item.name,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    logged_date: today,
+  }));
+
+  const { data, error } = await supabase.from("logged_meals").insert(rows).select();
+
+  if (error) throw error;
+
+  window.dispatchEvent(new Event("meals-updated"));
+
+  const inserted = data as DbRow[];
+  const createdAt = inserted[0]?.created_at ?? now.toISOString();
+
+  return {
+    id: createdAt,
+    type: windowLabel,
+    time: formatClockTime(new Date(createdAt)),
+    items: inserted.map(rowToFoodItem),
+    date: today,
+  };
+}
+
+export async function clearTodayMeals(): Promise<void> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  const { error } = await supabase
+    .from("logged_meals")
+    .delete()
+    .eq("user_id", userId)
+    .eq("logged_date", today);
+
+  if (error) throw error;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+export async function deleteFoodItem(itemId: string): Promise<void> {
+  const { error } = await supabase.from("logged_meals").delete().eq("id", itemId);
+
+  if (error) throw error;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+export async function updateFoodItem(
+  itemId: string,
+  updates: { name: string; calories: number }
+): Promise<void> {
+  const { data: existing, error: fetchError } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const row = existing as DbRow;
+  const oldCalories = Number(row.calories);
+  const ratio = oldCalories > 0 ? updates.calories / oldCalories : 1;
+
+  const { error: updateError } = await supabase
+    .from("logged_meals")
+    .update({
+      food_name: updates.name,
+      calories: updates.calories,
+      protein: Math.round(Number(row.protein) * ratio * 10) / 10,
+      carbs: Math.round(Number(row.carbs) * ratio * 10) / 10,
+      fat: Math.round(Number(row.fat) * ratio * 10) / 10,
+    })
+    .eq("id", itemId);
+
+  if (updateError) throw updateError;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+export async function getStreak(): Promise<number> {
+  const userId = await getUserId();
+  const { data, error } = await supabase.from("logged_meals").select("logged_date").eq("user_id", userId);
+
+  if (error) throw error;
+
+  const dateSet = new Set((data ?? []).map((r) => r.logged_date as string));
+  if (dateSet.size === 0) return 0;
+
+  const todayStr = getTodayDate();
+  const cursor = new Date(todayStr + "T00:00:00");
+  if (!dateSet.has(todayStr)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let streak = 0;
+  while (true) {
+    const key = cursor.toISOString().split("T")[0];
+    if (dateSet.has(key)) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+export function buildMealSummary(meals: LoggedMeal[]) {
+  const totals = computeTotals(meals);
+  return {
+    totals,
+    meals: meals.map((meal) => ({
+      type: meal.type,
+      time: meal.time,
+      items: meal.items.map((item) => ({
+        name: item.name,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+      })),
+    })),
+  };
+}
+
+// Async: looks food items up against the real food_library table first,
+// falls back to the small MOCK_FOOD_DB, and finally to a generic estimate.
+export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
+  const parts = input
+    .toLowerCase()
+    .split(/[,+&]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) return [];
+
+  const library = await getFoodLibrary();
+
+  const sortedAliasKeys = Object.keys(LIBRARY_ALIASES).sort((a, b) => b.length - a.length);
+
+  return parts.map((part) => {
+    const qtyMatch = part.match(/(\d+)/);
+    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+    const displayName = part.charAt(0).toUpperCase() + part.slice(1);
+
+    const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
+    if (aliasKey) {
+      const targetName = LIBRARY_ALIASES[aliasKey];
+      const row = library.find((r) => r.name === targetName);
+      if (row) {
+        const base = libraryRowToMacros(row);
+        return {
+          name: displayName,
+          calories: base.calories * qty,
+          protein: base.protein * qty,
+          carbs: base.carbs * qty,
+          fat: base.fat * qty,
+        };
+      }
+    }
+
+    const directMatch = library.find((r) => part.includes(r.name.split(" (")[0].toLowerCase()));
+    if (directMatch) {
+      const base = libraryRowToMacros(directMatch);
+      return {
+        name: displayName,
+        calories: base.calories * qty,
+        protein: base.protein * qty,
+        carbs: base.carbs * qty,
+        fat: base.fat * qty,
+      };
+    }
+
+    const mockKey = Object.keys(MOCK_FOOD_DB).find((key) => part.includes(key));
+    if (mockKey) {
+      const base = MOCK_FOOD_DB[mockKey];
+      return {
+        name: displayName,
+        calories: base.calories * qty,
+        protein: base.protein * qty,
+        carbs: base.carbs * qty,
+        fat: base.fat * qty,
+      };
+    }
+
+    return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
+  });
+}
+
+export function computeTotals(meals: LoggedMeal[]) {
+  return meals.flatMap((m) => m.items).reduce(
+    (acc, item) => ({
+      calories: acc.calories + item.calories,
+      protein: acc.protein + item.protein,
+      carbs: acc.carbs + item.carbs,
+      fat: acc.fat + item.fat,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+}
+
+export function getAllFoodItems(meals: LoggedMeal[]): FoodItem[] {
+  return meals.flatMap((m) => m.items);
+}
+
+export function getMacroTrafficColor(consumed: number, goal: number): string {
+  const ratio = consumed / goal;
+  if (ratio > 1) return "#ef4444";
+  if (ratio >= 0.8) return "#f59e0b";
+  return "#22c55e";
+}
+
+export function getRingGradientId(progressRatio: number): string {
+  const pct = progressRatio * 100;
+  if (pct >= 90) return "ring-gradient-red";
+  if (pct >= 70) return "ring-gradient-orange";
+  return "ring-gradient-green";
+}
+
+export function getFoodEmoji(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("dal") || n.includes("lentil")) return "🍲";
+  if (n.includes("roti") || n.includes("naan") || n.includes("bread") || n.includes("dosa") || n.includes("idli"))
+    return "🫓";
+  if (n.includes("rice") || n.includes("poha")) return "🍚";
+  if (n.includes("sabzi") || n.includes("gobi") || n.includes("vegetable") || n.includes("salad") || n.includes("aloo"))
+    return "🥗";
+  if (n.includes("paneer") || n.includes("raita") || n.includes("dairy") || n.includes("lassi") || n.includes("curd"))
+    return "🧀";
+  if (n.includes("chai") || n.includes("tea") || n.includes("coffee") || n.includes("beverage")) return "☕";
+  if (n.includes("samosa") || n.includes("snack") || n.includes("pakora")) return "🥟";
+  if (n.includes("sweet") || n.includes("kheer") || n.includes("halwa") || n.includes("jalebi") || n.includes("gulab"))
+    return "🍮";
+  return "🥗";
+}
