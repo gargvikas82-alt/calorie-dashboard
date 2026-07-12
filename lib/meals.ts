@@ -44,6 +44,9 @@ const WINDOW_COLORS: Record<string, WindowColorSet> = {
   "Late Night": { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-400", activeBg: "bg-slate-600" },
 };
 
+// Ordered list of all 8 time windows, for building the override picker UI.
+export const TIME_WINDOWS: string[] = Object.keys(WINDOW_COLORS);
+
 export function getWindowColor(label: string): WindowColorSet {
   return WINDOW_COLORS[label] ?? WINDOW_COLORS["Late Night"];
 }
@@ -213,11 +216,17 @@ export async function loadTodayMeals(): Promise<LoggedMeal[]> {
   return groupRowsIntoMeals((data ?? []) as DbRow[], today);
 }
 
-export async function saveMeal(items: Omit<FoodItem, "id">[]): Promise<LoggedMeal> {
+// windowOverride lets the log screen tag an entry with a manually chosen
+// time window (e.g. logging at 10 PM something actually eaten in the
+// morning) instead of always using the current clock time.
+export async function saveMeal(
+  items: Omit<FoodItem, "id">[],
+  windowOverride?: string
+): Promise<LoggedMeal> {
   const userId = await getUserId();
   const today = getTodayDate();
   const now = new Date();
-  const windowLabel = getTimeWindowLabel(now);
+  const windowLabel = windowOverride ?? getTimeWindowLabel(now);
 
   const rows = items.map((item) => ({
     user_id: userId,
