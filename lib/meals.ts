@@ -1,3 +1,5 @@
+import { supabase } from "./supabase-client";
+
 export type MealType = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 
 export type FoodItem = {
@@ -61,8 +63,6 @@ export const MEAL_TYPE_COLORS: Record<
   },
 };
 
-const STORAGE_KEY = "veg-calorie-meals";
-
 const MOCK_FOOD_DB: Record<
   string,
   { calories: number; protein: number; carbs: number; fat: number }
@@ -85,93 +85,156 @@ export function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-export function loadTodayMeals(): LoggedMeal[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const all: LoggedMeal[] = JSON.parse(raw);
-    const today = getTodayDate();
-    return all.filter((m) => m.date === today);
-  } catch {
-    return [];
-  }
+async function getUserId(): Promise<string> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in");
+  return user.id;
 }
 
-export function saveMeal(
+type DbRow = {
+  id: string;
+  meal_type: MealType;
+  food_name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  logged_date: string;
+};
+
+function rowToFoodItem(row: DbRow): FoodItem {
+  return {
+    id: row.id,
+    name: row.food_name,
+    calories: Number(row.calories),
+    protein: Number(row.protein),
+    carbs: Number(row.carbs),
+    fat: Number(row.fat),
+  };
+}
+
+function groupRowsIntoMeals(rows: DbRow[], date: string): LoggedMeal[] {
+  const byType: Record<MealType, FoodItem[]> = {
+    Breakfast: [],
+    Lunch: [],
+    Dinner: [],
+    Snack: [],
+  };
+  for (const row of rows) {
+    byType[row.meal_type].push(rowToFoodItem(row));
+  }
+  return MEAL_TYPES.filter((type) => byType[type].length > 0).map((type) => ({
+    id: `${type}-${date}`,
+    type,
+    items: byType[type],
+    date,
+  }));
+}
+
+export async function loadTodayMeals(): Promise<LoggedMeal[]> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("logged_date", today)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return groupRowsIntoMeals((data ?? []) as DbRow[], today);
+}
+
+export async function saveMeal(
   type: MealType,
   items: Omit<FoodItem, "id">[]
-): LoggedMeal {
-  const meal: LoggedMeal = {
-    id: crypto.randomUUID(),
-    type,
-    items: items.map((item) => ({ ...item, id: crypto.randomUUID() })),
-    date: getTodayDate(),
-  };
-
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const all: LoggedMeal[] = raw ? JSON.parse(raw) : [];
-  all.push(meal);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  window.dispatchEvent(new Event("meals-updated"));
-  return meal;
-}
-
-export function clearTodayMeals(): void {
+): Promise<LoggedMeal> {
+  const userId = await getUserId();
   const today = getTodayDate();
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const all: LoggedMeal[] = raw ? JSON.parse(raw) : [];
-  const filtered = all.filter((m) => m.date !== today);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+
+  const rows = items.map((item) => ({
+    user_id: userId,
+    meal_type: type,
+    food_name: item.name,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    logged_date: today,
+  }));
+
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .insert(rows)
+    .select();
+
+  if (error) throw error;
+
+  window.dispatchEvent(new Event("meals-updated"));
+
+  return {
+    id: `${type}-${today}`,
+    type,
+    items: (data as DbRow[]).map(rowToFoodItem),
+    date: today,
+  };
+}
+
+export async function clearTodayMeals(): Promise<void> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  const { error } = await supabase
+    .from("logged_meals")
+    .delete()
+    .eq("user_id", userId)
+    .eq("logged_date", today);
+
+  if (error) throw error;
   window.dispatchEvent(new Event("meals-updated"));
 }
 
-function loadAllMeals(): LoggedMeal[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
+export async function deleteFoodItem(itemId: string): Promise<void> {
+  const { error } = await supabase
+    .from("logged_meals")
+    .delete()
+    .eq("id", itemId);
 
-function persistMeals(all: LoggedMeal[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  if (error) throw error;
   window.dispatchEvent(new Event("meals-updated"));
 }
 
-export function deleteFoodItem(itemId: string): void {
-  const all = loadAllMeals()
-    .map((meal) => ({
-      ...meal,
-      items: meal.items.filter((item) => item.id !== itemId),
-    }))
-    .filter((meal) => meal.items.length > 0);
-  persistMeals(all);
-}
-
-export function updateFoodItem(
+export async function updateFoodItem(
   itemId: string,
   updates: { name: string; calories: number }
-): void {
-  const all = loadAllMeals().map((meal) => ({
-    ...meal,
-    items: meal.items.map((item) => {
-      if (item.id !== itemId) return item;
-      const ratio =
-        item.calories > 0 ? updates.calories / item.calories : 1;
-      return {
-        ...item,
-        name: updates.name,
-        calories: updates.calories,
-        protein: Math.round(item.protein * ratio * 10) / 10,
-        carbs: Math.round(item.carbs * ratio * 10) / 10,
-        fat: Math.round(item.fat * ratio * 10) / 10,
-      };
-    }),
-  }));
-  persistMeals(all);
+): Promise<void> {
+  const { data: existing, error: fetchError } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const row = existing as DbRow;
+  const oldCalories = Number(row.calories);
+  const ratio = oldCalories > 0 ? updates.calories / oldCalories : 1;
+
+  const { error: updateError } = await supabase
+    .from("logged_meals")
+    .update({
+      food_name: updates.name,
+      calories: updates.calories,
+      protein: Math.round(Number(row.protein) * ratio * 10) / 10,
+      carbs: Math.round(Number(row.carbs) * ratio * 10) / 10,
+      fat: Math.round(Number(row.fat) * ratio * 10) / 10,
+    })
+    .eq("id", itemId);
+
+  if (updateError) throw updateError;
+  window.dispatchEvent(new Event("meals-updated"));
 }
 
 export function buildMealSummary(meals: LoggedMeal[]) {
@@ -194,9 +257,7 @@ export function buildMealSummary(meals: LoggedMeal[]) {
   };
 }
 
-export function mockParseMeal(
-  input: string
-): Omit<FoodItem, "id">[] {
+export function mockParseMeal(input: string): Omit<FoodItem, "id">[] {
   const parts = input
     .toLowerCase()
     .split(/[,+&]/)
