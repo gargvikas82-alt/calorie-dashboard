@@ -14,6 +14,7 @@ import {
   computeTotals,
   deleteFoodItem,
   getAllFoodItems,
+  getCachedInsight,
   getFoodEmoji,
   getLast7DaysTotals,
   getMacroTrafficColor,
@@ -21,6 +22,7 @@ import {
   getStreak,
   getWindowColor,
   loadTodayMeals,
+  saveCachedInsight,
   updateFoodItem,
   type LoggedMeal,
 } from "@/lib/meals";
@@ -520,50 +522,29 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
 
   return (
     <li className={`relative overflow-hidden rounded-xl ${deleting ? "animate-fade-out-delete" : ""}`}>
-      <div className="absolute right-0 top-0 flex h-full">
-        <button
-          type="button"
-          onClick={() => {
-            setSwipeX(0);
-            setEditing(true);
-          }}
-          className="flex w-11 items-center justify-center bg-amber-500 text-white"
-          aria-label="Edit item"
-        >
-          ✏️
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          className="flex w-11 items-center justify-center bg-red-500 text-white"
-          aria-label="Delete item"
-        >
-          🗑️
-        </button>
-      </div>
-
       <div
-        className="relative flex items-center justify-between rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
+        className="rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
         style={{ transform: `translateX(${swipeX}px)` }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <span className="pr-2 text-lg text-gray-800">
-          {getFoodEmoji(item.name)} {item.name}
-        </span>
-        <div className="flex shrink-0 items-center gap-1">
-          <div className="text-right text-base text-gray-500">
-            <p className="font-medium text-gray-700">{item.calories} kcal</p>
-            <p>{item.protein}g protein</p>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-lg text-gray-800">
+            {getFoodEmoji(item.name)} {item.name}
+          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <button type="button" onClick={() => setEditing(true)} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Edit">
+              ✏️
+            </button>
+            <button type="button" onClick={handleDelete} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Delete">
+              🗑️
+            </button>
           </div>
-          <button type="button" onClick={() => setEditing(true)} className="ml-1 rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Edit">
-            ✏️
-          </button>
-          <button type="button" onClick={handleDelete} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Delete">
-            🗑️
-          </button>
         </div>
+        <p className="mt-1 text-base text-gray-500">
+          {item.calories} kcal · {item.protein}g protein
+        </p>
       </div>
     </li>
   );
@@ -575,28 +556,44 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
   const [error, setError] = useState<string | null>(null);
   const hasFetched = useRef(false);
 
-  const fetchInsight = useCallback(async () => {
-    if (!hasMeals) return;
-    setLoading(true);
-    setError(null);
+  const fetchInsight = useCallback(
+    async (forceRefresh = false) => {
+      if (!hasMeals) return;
+      setLoading(true);
+      setError(null);
 
-    try {
-      const summary = buildMealSummary(meals);
-      const res = await fetch("/api/insight", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(summary),
-      });
+      try {
+        if (!forceRefresh) {
+          // Check for a cached insight generated earlier today before
+          // burning a Gemini call — the free tier is capped at 20
+          // requests/day, shared across everyone using the app.
+          const cached = await getCachedInsight();
+          if (cached) {
+            setInsight(cached.insight);
+            setLoading(false);
+            return;
+          }
+        }
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
-      setInsight(data.insight);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }, [meals, hasMeals]);
+        const summary = buildMealSummary(meals);
+        const res = await fetch("/api/insight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(summary),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
+        setInsight(data.insight);
+        await saveCachedInsight(data.insight);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [meals, hasMeals]
+  );
 
   useEffect(() => {
     if (!hasMeals) {
@@ -607,7 +604,7 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
     }
     if (!hasFetched.current) {
       hasFetched.current = true;
-      fetchInsight();
+      fetchInsight(false);
     }
   }, [hasMeals, fetchInsight]);
 
@@ -619,7 +616,7 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
         <h2 className="text-xl font-semibold text-gray-900">🤖 Today&apos;s Insight</h2>
         <button
           type="button"
-          onClick={fetchInsight}
+          onClick={() => fetchInsight(true)}
           disabled={loading}
           className="rounded-lg border border-green-200 bg-white px-2.5 py-1 text-base font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
         >
@@ -646,7 +643,7 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
 function MealCard({ meal, onChanged }: { meal: LoggedMeal; onChanged: () => void }) {
   const colors = getWindowColor(meal.type);
   return (
-    <div className="w-[280px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg">
+    <div className="w-[300px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg">
       <div className="mb-3 flex items-center justify-between">
         <span className={`inline-block rounded-full px-3 py-1 text-base font-semibold text-white ${colors.activeBg}`}>
           {meal.type}
