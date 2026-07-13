@@ -94,6 +94,10 @@ export default function LogMealPage() {
       setResults(parsed);
       setLoggedWindow(saved.type);
       setShowSuccess(true);
+      // Always snap the picker back to the current real-time window after
+      // a successful save, so the next entry (quick-add or typed) doesn't
+      // silently inherit a stale manual selection from a moment ago.
+      setSelectedWindow(getTimeWindowLabel(new Date()));
     } catch (err) {
       if (err instanceof Error && err.message === "Not signed in") {
         setError("Please sign in first to log something.");
@@ -120,7 +124,7 @@ export default function LogMealPage() {
     setShowSuccess(false);
     setResults(null);
     setMealInput("");
-    setSelectedWindow(autoWindow);
+    setSelectedWindow(getTimeWindowLabel(new Date()));
   }
 
   return (
