@@ -643,6 +643,25 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
   );
 }
 
+function MealCard({ meal, onChanged }: { meal: LoggedMeal; onChanged: () => void }) {
+  const colors = getWindowColor(meal.type);
+  return (
+    <div className="w-[280px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg">
+      <div className="mb-3 flex items-center justify-between">
+        <span className={`inline-block rounded-full px-3 py-1 text-base font-semibold text-white ${colors.activeBg}`}>
+          {meal.type}
+        </span>
+        <span className="text-base font-medium text-gray-400">{meal.time}</span>
+      </div>
+      <ul className="space-y-2">
+        {meal.items.map((item) => (
+          <MealLogItem key={item.id} item={item} onChanged={onChanged} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [meals, setMeals] = useState<LoggedMeal[]>([]);
   const [streak, setStreak] = useState(0);
@@ -818,35 +837,22 @@ export default function Dashboard() {
             <TodaysInsight meals={meals} hasMeals={hasMeals} />
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
+                {hasMeals && <span className="text-sm text-gray-400">swipe →</span>}
+              </div>
               {!hasMeals && (
                 <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-lg text-gray-500 shadow-lg">
                   Nothing logged yet. Tap + to add what you just ate.
                 </p>
               )}
-              {meals.map((meal) => {
-                const colors = getWindowColor(meal.type);
-                return (
-                  <div
-                    key={meal.id}
-                    className="rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg"
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <span
-                        className={`inline-block rounded-full px-3 py-1 text-base font-semibold text-white ${colors.activeBg}`}
-                      >
-                        {meal.type}
-                      </span>
-                      <span className="text-base font-medium text-gray-400">{meal.time}</span>
-                    </div>
-                    <ul className="space-y-2">
-                      {meal.items.map((item) => (
-                        <MealLogItem key={item.id} item={item} onChanged={refresh} />
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
+              {hasMeals && (
+                <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+                  {meals.map((meal) => (
+                    <MealCard key={meal.id} meal={meal} onChanged={refresh} />
+                  ))}
+                </div>
+              )}
             </section>
           </>
         )}
