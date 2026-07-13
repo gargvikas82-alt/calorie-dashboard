@@ -23,6 +23,11 @@ export type DayTotal = {
   calories: number;
 };
 
+export type CachedInsight = {
+  insight: string;
+  createdAt: string;
+};
+
 export const CALORIE_GOAL = 2000;
 
 export const MACRO_GOALS = {
@@ -374,6 +379,36 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   }
 
   return days;
+}
+
+// Returns today's already-generated insight if one exists, so we don't
+// burn another Gemini call (free tier is capped at 20 requests/day,
+// shared across everyone using the app).
+export async function getCachedInsight(): Promise<CachedInsight | null> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  const { data, error } = await supabase
+    .from("daily_insights")
+    .select("insight, created_at")
+    .eq("user_id", userId)
+    .eq("logged_date", today)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return { insight: data.insight as string, createdAt: data.created_at as string };
+}
+
+export async function saveCachedInsight(insight: string): Promise<void> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  await supabase
+    .from("daily_insights")
+    .upsert(
+      { user_id: userId, logged_date: today, insight },
+      { onConflict: "user_id,logged_date" }
+    );
 }
 
 export function buildMealSummary(meals: LoggedMeal[]) {
