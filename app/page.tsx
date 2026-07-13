@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -839,39 +840,39 @@ export default function Dashboard() {
             <TodaysInsight meals={meals} hasMeals={hasMeals} />
 
             <section className="space-y-3">
-              <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
+                {meals.length > 1 && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => scrollTimeline("left")}
+                      aria-label="Scroll timeline left"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl text-[#166534] shadow-md active:scale-90"
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollTimeline("right")}
+                      aria-label="Scroll timeline right"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-[#166534] text-2xl text-white shadow-md active:scale-90"
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
               {!hasMeals && (
                 <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-lg text-gray-500 shadow-lg">
                   Nothing logged yet. Tap + to add what you just ate.
                 </p>
               )}
               {hasMeals && (
-                <div className="relative">
-                  <div ref={timelineRef} className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
-                    {meals.map((meal) => (
-                      <MealCard key={meal.id} meal={meal} onChanged={refresh} />
-                    ))}
-                  </div>
-                  {meals.length > 1 && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => scrollTimeline("left")}
-                        aria-label="Scroll timeline left"
-                        className="absolute left-1 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-xl text-[#166534] shadow-lg active:scale-90"
-                      >
-                        ←
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => scrollTimeline("right")}
-                        aria-label="Scroll timeline right"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-xl text-[#166534] shadow-lg active:scale-90"
-                      >
-                        →
-                      </button>
-                    </>
-                  )}
+                <div ref={timelineRef} className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+                  {meals.map((meal) => (
+                    <MealCard key={meal.id} meal={meal} onChanged={refresh} />
+                  ))}
                 </div>
               )}
             </section>
