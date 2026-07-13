@@ -26,6 +26,7 @@ export type DayTotal = {
 export type CachedInsight = {
   insight: string;
   createdAt: string;
+  itemCount: number;
 };
 
 export const CALORIE_GOAL = 2000;
@@ -381,32 +382,37 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   return days;
 }
 
-// Returns today's already-generated insight if one exists, so we don't
-// burn another Gemini call (free tier is capped at 20 requests/day,
-// shared across everyone using the app).
+// Returns today's already-generated insight if one exists AND it still
+// matches the current number of logged items. If new items were logged
+// since the insight was generated, the cache is considered stale and
+// null is returned so a fresh insight gets generated (and re-cached).
 export async function getCachedInsight(): Promise<CachedInsight | null> {
   const userId = await getUserId();
   const today = getTodayDate();
 
   const { data, error } = await supabase
     .from("daily_insights")
-    .select("insight, created_at")
+    .select("insight, created_at, item_count")
     .eq("user_id", userId)
     .eq("logged_date", today)
     .maybeSingle();
 
   if (error || !data) return null;
-  return { insight: data.insight as string, createdAt: data.created_at as string };
+  return {
+    insight: data.insight as string,
+    createdAt: data.created_at as string,
+    itemCount: data.item_count as number,
+  };
 }
 
-export async function saveCachedInsight(insight: string): Promise<void> {
+export async function saveCachedInsight(insight: string, itemCount: number): Promise<void> {
   const userId = await getUserId();
   const today = getTodayDate();
 
   await supabase
     .from("daily_insights")
     .upsert(
-      { user_id: userId, logged_date: today, insight },
+      { user_id: userId, logged_date: today, insight, item_count: itemCount },
       { onConflict: "user_id,logged_date" }
     );
 }
