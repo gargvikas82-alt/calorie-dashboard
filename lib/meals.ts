@@ -75,8 +75,7 @@ export function formatClockTime(date: Date): string {
 // Builds a YYYY-MM-DD string from a Date's LOCAL components (year/month/day
 // as the device sees them) — never via toISOString(), which converts to
 // UTC and silently shifts the date backward for any timezone ahead of UTC
-// (like IST, UTC+5:30). That mismatch was causing streaks/trends to
-// attribute entries to the wrong calendar day.
+// (like IST, UTC+5:30).
 function toLocalDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -111,8 +110,6 @@ type FoodLibraryRow = {
 };
 
 // Short everyday words -> exact food_library item name.
-// Longer/more specific phrases (rajma, chana masala, vada pav) are matched
-// directly against the library names further down, no alias needed.
 const LIBRARY_ALIASES: Record<string, string> = {
   roti: "Roti (Phulka)",
   dal: "Dal Tadka",
@@ -133,6 +130,25 @@ const LIBRARY_ALIASES: Record<string, string> = {
   curd: "Dahi (Curd)",
   dahi: "Dahi (Curd)",
   milk: "Milk (full fat)",
+};
+
+// Combo dishes that are commonly eaten as a pair but exist as two separate
+// food_library rows (e.g. Chole Bhature = chickpea curry + fried bread).
+// Checked before single-item matching. If BOTH components resolve to a
+// real library row, their macros are summed under one display name. If
+// either component is missing, we deliberately do NOT combine a real
+// number with a guess — it falls through to normal matching instead,
+// which lands on the generic estimate if nothing else matches.
+const COMBO_DISHES: Record<string, string[]> = {
+  "chole bhature": ["chickpeas curry", "bhatura"],
+  "chana bhatura": ["chickpeas curry", "bhatura"],
+  "chole chawal": ["chickpeas curry", "steamed rice"],
+  "chana chawal": ["chickpeas curry", "steamed rice"],
+  "rajma chawal": ["rajma", "steamed rice"],
+  "dal chawal": ["dal tadka", "steamed rice"],
+  "dal rice": ["dal tadka", "steamed rice"],
+  "kadhi chawal": ["kadhi", "steamed rice"],
+  "poha jalebi": ["poha", "jalebi"],
 };
 
 let libraryCache: FoodLibraryRow[] | null = null;
@@ -159,6 +175,14 @@ function libraryRowToMacros(row: FoodLibraryRow): FoodMacros {
     carbs: Number(row.carbs_g),
     fat: Number(row.fat_g),
   };
+}
+
+// Finds a library row whose name (lowercased) contains the given search
+// term. Used for combo-dish component lookup, which searches against
+// full names (unlike the stricter split-on-"(" logic used for direct
+// single-item matching below).
+function findLibraryRow(library: FoodLibraryRow[], searchTerm: string): FoodLibraryRow | undefined {
+  return library.find((r) => r.name.toLowerCase().includes(searchTerm));
 }
 
 export function getTodayDate(): string {
@@ -233,9 +257,6 @@ export async function loadTodayMeals(): Promise<LoggedMeal[]> {
   return groupRowsIntoMeals((data ?? []) as DbRow[], today);
 }
 
-// windowOverride lets the log screen tag an entry with a manually chosen
-// time window (e.g. logging at 10 PM something actually eaten in the
-// morning) instead of always using the current clock time.
 export async function saveMeal(
   items: Omit<FoodItem, "id">[],
   windowOverride?: string
@@ -326,10 +347,6 @@ export async function updateFoodItem(
   window.dispatchEvent(new Event("meals-updated"));
 }
 
-// Counts consecutive days (going backward from today, in LOCAL time) that
-// have at least one logged_meals row. Uses local-date string comparisons
-// throughout — no toISOString() — so it doesn't misattribute entries
-// across the IST/UTC boundary.
 export async function getStreak(): Promise<number> {
   const userId = await getUserId();
   const { data, error } = await supabase.from("logged_meals").select("logged_date").eq("user_id", userId);
@@ -358,10 +375,6 @@ export async function getStreak(): Promise<number> {
   return streak;
 }
 
-// Last 7 days (including today) of total calories per day, for the
-// "Last 7 Days" trend section. Returns oldest -> newest. Uses local-date
-// strings throughout so day boundaries match the device's real calendar
-// day, not a UTC-shifted one.
 export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   const userId = await getUserId();
 
@@ -399,10 +412,6 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   return days;
 }
 
-// Returns today's already-generated insight if one exists, so we don't
-// burn another Gemini call (free tier is capped at 20 requests/day,
-// shared across everyone using the app). Cached once per calendar day
-// per user.
 export async function getCachedInsight(): Promise<CachedInsight | null> {
   const userId = await getUserId();
   const today = getTodayDate();
@@ -448,8 +457,9 @@ export function buildMealSummary(meals: LoggedMeal[]) {
   };
 }
 
-// Async: looks food items up against the real food_library table first,
-// falls back to the small MOCK_FOOD_DB, and finally to a generic estimate.
+// Async: checks combo-dish pairs first, then looks food items up against
+// the real food_library table, falls back to the small MOCK_FOOD_DB, and
+// finally to a generic estimate.
 export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
   const parts = input
     .toLowerCase()
@@ -461,12 +471,44 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
 
   const library = await getFoodLibrary();
 
+  const sortedComboKeys = Object.keys(COMBO_DISHES).sort((a, b) => b.length - a.length);
   const sortedAliasKeys = Object.keys(LIBRARY_ALIASES).sort((a, b) => b.length - a.length);
 
   return parts.map((part) => {
     const qtyMatch = part.match(/(\d+)/);
     const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
     const displayName = part.charAt(0).toUpperCase() + part.slice(1);
+
+    // Combo dishes first — e.g. "chole bhature" resolves to two summed
+    // library rows if both components are found.
+    const comboKey = sortedComboKeys.find((key) => part.includes(key));
+    if (comboKey) {
+      const componentTerms = COMBO_DISHES[comboKey];
+      const componentRows = componentTerms.map((term) => findLibraryRow(library, term));
+      if (componentRows.every((r) => r !== undefined)) {
+        const combined = componentRows.reduce(
+          (acc, row) => {
+            const m = libraryRowToMacros(row!);
+            return {
+              calories: acc.calories + m.calories,
+              protein: acc.protein + m.protein,
+              carbs: acc.carbs + m.carbs,
+              fat: acc.fat + m.fat,
+            };
+          },
+          { calories: 0, protein: 0, carbs: 0, fat: 0 }
+        );
+        return {
+          name: displayName,
+          calories: combined.calories * qty,
+          protein: combined.protein * qty,
+          carbs: combined.carbs * qty,
+          fat: combined.fat * qty,
+        };
+      }
+      // Components not both found — fall through to normal matching below
+      // rather than mixing a real number with a guess.
+    }
 
     const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
 
