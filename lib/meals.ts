@@ -1,895 +1,575 @@
-"use client";
+import { supabase } from "./supabase-client";
 
-import Link from "next/link";
-import AuthButton from "@/components/AuthButton";
-import { supabase } from "@/lib/supabase-client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CALORIE_GOAL,
-  MACRO_GOALS,
-  type DayTotal,
-  type FoodItem,
-  buildMealSummary,
-  clearTodayMeals,
-  computeTotals,
-  deleteFoodItem,
-  getAllFoodItems,
-  getCachedInsight,
-  getFoodEmoji,
-  getLast7DaysTotals,
-  getMacroTrafficColor,
-  getRingGradientId,
-  getStreak,
-  getWindowColor,
-  loadTodayMeals,
-  saveCachedInsight,
-  updateFoodItem,
-  type LoggedMeal,
-} from "@/lib/meals";
-
-type MacroKey = "protein" | "carbs" | "fat";
-
-const MACRO_CONFIG: {
-  key: MacroKey;
-  label: string;
-  icon: string;
-  goal: number;
-  stagger: number;
-}[] = [
-  { key: "protein", label: "Protein", icon: "💪", goal: MACRO_GOALS.protein, stagger: 0 },
-  { key: "carbs", label: "Carbs", icon: "⚡", goal: MACRO_GOALS.carbs, stagger: 150 },
-  { key: "fat", label: "Fat", icon: "💧", goal: MACRO_GOALS.fat, stagger: 300 },
-];
-
-const CONFETTI_COLORS = [
-  "#22c55e",
-  "#f97316",
-  "#ef4444",
-  "#3b82f6",
-  "#a855f7",
-  "#f59e0b",
-  "#16a34a",
-  "#ea580c",
-];
-
-function useCountUp(target: number, duration = 1500) {
-  const [value, setValue] = useState(0);
-
-  useEffect(() => {
-    if (target === 0) {
-      setValue(0);
-      return;
-    }
-
-    let frame: number;
-    const startTime = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = now - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(target * eased));
-      if (t < 1) frame = requestAnimationFrame(tick);
-    };
-
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [target, duration]);
-
-  return value;
-}
-
-function ConfettiBurst() {
-  const particles = useMemo(
-    () =>
-      Array.from({ length: 48 }, (_, i) => ({
-        id: i,
-        left: `${Math.random() * 100}%`,
-        delay: `${Math.random() * 0.6}s`,
-        duration: `${1.8 + Math.random() * 1.2}s`,
-        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-        size: 5 + Math.random() * 7,
-      })),
-    []
-  );
-
-  return (
-    <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
-      {particles.map((p) => (
-        <span
-          key={p.id}
-          className="animate-confetti-fall absolute top-0 rounded-full"
-          style={
-            {
-              left: p.left,
-              width: p.size,
-              height: p.size,
-              backgroundColor: p.color,
-              "--fall-delay": p.delay,
-              "--fall-duration": p.duration,
-            } as React.CSSProperties
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
-function CalorieRing({
-  consumed,
-  goal,
-  animate,
-}: {
-  consumed: number;
-  goal: number;
-  animate: boolean;
-}) {
-  const size = 200;
-  const stroke = 14;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progressRatio = consumed / goal;
-  const displayProgress = Math.min(progressRatio, 1);
-  const targetOffset = circumference * (1 - displayProgress);
-  const gradientId = getRingGradientId(progressRatio);
-
-  const [offset, setOffset] = useState(circumference);
-
-  useEffect(() => {
-    if (!animate) {
-      setOffset(targetOffset);
-      return;
-    }
-    setOffset(circumference);
-    const timer = setTimeout(() => setOffset(targetOffset), 80);
-    return () => clearTimeout(timer);
-  }, [animate, targetOffset, circumference]);
-
-  const displayCalories = useCountUp(consumed, 1500);
-
-  return (
-    <div className="relative mx-auto flex h-[200px] w-[200px] items-center justify-center">
-      <svg width={size} height={size} className="-rotate-90">
-        <defs>
-          <linearGradient id="ring-gradient-green" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#22c55e" />
-            <stop offset="100%" stopColor="#16a34a" />
-          </linearGradient>
-          <linearGradient id="ring-gradient-orange" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#f97316" />
-            <stop offset="100%" stopColor="#ea580c" />
-          </linearGradient>
-          <linearGradient id="ring-gradient-red" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#ef4444" />
-            <stop offset="100%" stopColor="#dc2626" />
-          </linearGradient>
-        </defs>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={`url(#${gradientId})`}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          style={{ transition: "stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)" }}
-        />
-      </svg>
-      <div className="absolute text-center">
-        <p className="text-5xl font-bold text-gray-900">{displayCalories}</p>
-        <p className="text-lg text-gray-500">/ {goal} kcal</p>
-      </div>
-    </div>
-  );
-}
-
-function StreakBadge({ streak }: { streak: number }) {
-  if (streak <= 0) return null;
-  return (
-    <div className="animate-fade-slide-up flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-1.5 shadow-sm">
-      <span className="text-xl">🔥</span>
-      <span className="text-lg font-semibold text-orange-700">
-        {streak} day{streak > 1 ? "s" : ""}
-      </span>
-    </div>
-  );
-}
-
-function MacroBar({
-  macroKey,
-  label,
-  icon,
-  consumed,
-  goal,
-  animate,
-  stagger,
-  items,
-  expanded,
-  onToggle,
-}: {
-  macroKey: MacroKey;
-  label: string;
-  icon: string;
-  consumed: number;
-  goal: number;
-  animate: boolean;
-  stagger: number;
-  items: FoodItem[];
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const ratio = consumed / goal;
-  const barPct = Math.min(ratio * 100, 100);
-  const color = getMacroTrafficColor(consumed, goal);
-  const [width, setWidth] = useState(0);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!animate) {
-      setVisible(true);
-      setWidth(barPct);
-      return;
-    }
-    setVisible(false);
-    setWidth(0);
-    const showTimer = setTimeout(() => setVisible(true), stagger + 50);
-    const widthTimer = setTimeout(() => setWidth(barPct), stagger + 200);
-    return () => {
-      clearTimeout(showTimer);
-      clearTimeout(widthTimer);
-    };
-  }, [animate, barPct, stagger]);
-
-  const contributors = items
-    .filter((item) => item[macroKey] > 0)
-    .sort((a, b) => b[macroKey] - a[macroKey]);
-
-  return (
-    <div
-      className={`animate-macro-slide-in rounded-xl bg-white/50 ${visible ? "opacity-100" : ""}`}
-      style={{ animationDelay: `${stagger}ms` }}
-    >
-      <button type="button" onClick={onToggle} className="w-full text-left" aria-expanded={expanded}>
-        <div className="mb-1 flex justify-between text-lg">
-          <span className="font-medium text-gray-700">
-            {icon} {label}
-          </span>
-          <span className="text-gray-500">
-            {consumed}g / {goal}g
-            <span className="ml-1 text-base text-gray-400">{expanded ? "▲" : "▼"}</span>
-          </span>
-        </div>
-        <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${width}%`, backgroundColor: color, transition: "width 1.2s cubic-bezier(0.4, 0, 0.2, 1)" }}
-          />
-        </div>
-      </button>
-
-      <div className={`macro-expand ${expanded ? "open" : ""}`}>
-        <div className="macro-expand-inner">
-          <ul className="space-y-1.5 pt-2">
-            {contributors.length === 0 ? (
-              <li className="text-base text-gray-400">No contributions yet</li>
-            ) : (
-              contributors.map((item) => (
-                <li key={item.id} className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-base">
-                  <span className="text-gray-700">
-                    {getFoodEmoji(item.name)} {item.name}
-                  </span>
-                  <span className="font-medium text-gray-600">{item[macroKey]}g</span>
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MacroDoughnut({
-  protein,
-  carbs,
-  fat,
-  animate,
-}: {
+export type FoodItem = {
+  id: string;
+  name: string;
+  calories: number;
   protein: number;
   carbs: number;
   fat: number;
-  animate: boolean;
-}) {
-  const size = 128;
-  const stroke = 18;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const total = protein + carbs + fat;
+};
 
-  const segments = [
-    { value: protein, color: "#3b82f6", label: "Protein" },
-    { value: carbs, color: "#f59e0b", label: "Carbs" },
-    { value: fat, color: "#ef4444", label: "Fat" },
-  ];
+export type LoggedMeal = {
+  id: string;
+  type: string;
+  time: string;
+  items: FoodItem[];
+  date: string;
+};
 
-  if (total === 0) {
-    return (
-      <div className="flex flex-col items-center py-2">
-        <div className="flex h-32 w-32 items-center justify-center rounded-full border-[18px] border-gray-100">
-          <span className="text-base text-gray-400">No data</span>
-        </div>
-      </div>
-    );
-  }
+export type DayTotal = {
+  date: string;
+  dayLabel: string;
+  calories: number;
+};
 
-  let cumulativeAngle = -90;
+export type CachedInsight = {
+  insight: string;
+  createdAt: string;
+};
 
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="relative">
-        <svg width={size} height={size}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f3f4f6" strokeWidth={stroke} />
-          {segments.map((seg) => {
-            const pct = seg.value / total;
-            const dash = pct * circumference;
-            const rotation = cumulativeAngle;
-            cumulativeAngle += pct * 360;
+export const CALORIE_GOAL = 2000;
 
-            return (
-              <circle
-                key={seg.label}
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={seg.color}
-                strokeWidth={stroke}
-                strokeDasharray={`${animate ? dash : 0} ${circumference}`}
-                strokeLinecap="butt"
-                transform={`rotate(${rotation} ${size / 2} ${size / 2})`}
-                style={{ transition: "stroke-dasharray 1.5s cubic-bezier(0.4, 0, 0.2, 1)" }}
-              />
-            );
-          })}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold text-gray-900">{total}g</span>
-          <span className="text-sm text-gray-400">total macros</span>
-        </div>
-      </div>
-      <div className="flex flex-wrap justify-center gap-3">
-        {segments.map((seg) => (
-          <div key={seg.label} className="flex items-center gap-1.5 text-base text-gray-600">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
-            {seg.label} <span className="font-medium">{Math.round((seg.value / total) * 100)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+export const MACRO_GOALS = {
+  protein: 80,
+  carbs: 250,
+  fat: 65,
+} as const;
+
+type WindowColorSet = { bg: string; text: string; border: string; activeBg: string };
+
+const WINDOW_COLORS: Record<string, WindowColorSet> = {
+  "Early Morning": { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-400", activeBg: "bg-indigo-500" },
+  Breakfast: { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-400", activeBg: "bg-orange-500" },
+  "Mid-Morning": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-400", activeBg: "bg-amber-500" },
+  Lunch: { bg: "bg-green-50", text: "text-green-800", border: "border-green-600", activeBg: "bg-[#166534]" },
+  Afternoon: { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-400", activeBg: "bg-teal-600" },
+  Evening: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-500", activeBg: "bg-blue-500" },
+  Dinner: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-500", activeBg: "bg-purple-600" },
+  "Late Night": { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-400", activeBg: "bg-slate-600" },
+};
+
+// Ordered list of all 8 time windows, for building the override picker UI.
+export const TIME_WINDOWS: string[] = Object.keys(WINDOW_COLORS);
+
+export function getWindowColor(label: string): WindowColorSet {
+  return WINDOW_COLORS[label] ?? WINDOW_COLORS["Late Night"];
 }
 
-function WeeklyTrend({ days, goal }: { days: DayTotal[]; goal: number }) {
-  const maxValue = Math.max(goal, ...days.map((d) => d.calories), 1);
-  const todayStr = days.length > 0 ? days[days.length - 1].date : "";
-  const hasAnyData = days.some((d) => d.calories > 0);
-
-  return (
-    <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
-      <h2 className="mb-1 text-xl font-semibold text-gray-900">Last 7 Days</h2>
-      <p className="mb-4 text-base text-gray-500">
-        {hasAnyData ? "Your calorie trend this week" : "Ready for some wins? Start tracking, it's easy!"}
-      </p>
-
-      <div className="flex items-end justify-between gap-2" style={{ height: 140 }}>
-        {days.map((day) => {
-          const isToday = day.date === todayStr;
-          const heightPct = day.calories > 0 ? Math.max((day.calories / maxValue) * 100, 4) : 0;
-          const overGoal = day.calories > goal;
-
-          return (
-            <div key={day.date} className="flex flex-1 flex-col items-center gap-1.5">
-              <span className="text-sm font-medium text-gray-500">
-                {day.calories > 0 ? day.calories : ""}
-              </span>
-              <div className="flex w-full flex-1 items-end">
-                <div
-                  className={`w-full rounded-t-lg transition-all duration-700 ease-out ${
-                    day.calories === 0
-                      ? "bg-gray-100"
-                      : overGoal
-                        ? "bg-orange-400"
-                        : isToday
-                          ? "bg-[#166534]"
-                          : "bg-green-300"
-                  }`}
-                  style={{ height: `${heightPct}%`, minHeight: day.calories > 0 ? 6 : 4 }}
-                />
-              </div>
-              <span className={`text-base font-medium ${isToday ? "text-[#166534]" : "text-gray-400"}`}>
-                {day.dayLabel}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
+export function getTimeWindowLabel(date: Date): string {
+  const hour = date.getHours() + date.getMinutes() / 60;
+  if (hour >= 4 && hour < 7) return "Early Morning";
+  if (hour >= 7 && hour < 10) return "Breakfast";
+  if (hour >= 10 && hour < 12) return "Mid-Morning";
+  if (hour >= 12 && hour < 15) return "Lunch";
+  if (hour >= 15 && hour < 17) return "Afternoon";
+  if (hour >= 17 && hour < 19) return "Evening";
+  if (hour >= 19 && hour < 22) return "Dinner";
+  return "Late Night";
 }
 
-function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editName, setEditName] = useState(item.name);
-  const [editCalories, setEditCalories] = useState(String(item.calories));
-  const [swipeX, setSwipeX] = useState(0);
-  const [touchStartX, setTouchStartX] = useState(0);
-
-  const ACTION_WIDTH = 88;
-
-  function handleDelete() {
-    setDeleting(true);
-    setTimeout(async () => {
-      try {
-        await deleteFoodItem(item.id);
-      } catch (err) {
-        console.error("Delete failed:", err);
-      }
-      onChanged();
-    }, 350);
-  }
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    const calories = parseInt(editCalories, 10);
-    if (!editName.trim() || isNaN(calories) || calories <= 0) return;
-    setSaving(true);
-    try {
-      await updateFoodItem(item.id, { name: editName.trim(), calories });
-      setEditing(false);
-      onChanged();
-    } catch (err) {
-      console.error("Update failed:", err);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    setTouchStartX(e.touches[0].clientX);
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    const delta = e.touches[0].clientX - touchStartX;
-    setSwipeX(Math.max(Math.min(delta, 0), -ACTION_WIDTH));
-  }
-
-  function handleTouchEnd() {
-    if (swipeX < -ACTION_WIDTH * 0.6) {
-      handleDelete();
-    } else {
-      setSwipeX(0);
-    }
-  }
-
-  if (editing) {
-    return (
-      <li className="rounded-xl border border-[#166534]/30 bg-white p-3 shadow-md">
-        <form onSubmit={handleSaveEdit} className="space-y-2">
-          <input
-            type="text"
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534]"
-            placeholder="Food name"
-          />
-          <input
-            type="number"
-            value={editCalories}
-            onChange={(e) => setEditCalories(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534]"
-            placeholder="Calories"
-            min={1}
-          />
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 rounded-lg bg-[#166534] py-2 text-base font-semibold text-white disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false);
-                setEditName(item.name);
-                setEditCalories(String(item.calories));
-              }}
-              className="flex-1 rounded-lg border border-gray-200 py-2 text-base font-medium text-gray-600"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </li>
-    );
-  }
-
-  return (
-    <li className={`relative overflow-hidden rounded-xl ${deleting ? "animate-fade-out-delete" : ""}`}>
-      <div
-        className="rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
-        style={{ transform: `translateX(${swipeX}px)` }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-lg text-gray-800">
-            {getFoodEmoji(item.name)} {item.name}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
-            <button type="button" onClick={() => setEditing(true)} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Edit">
-              ✏️
-            </button>
-            <button type="button" onClick={handleDelete} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Delete">
-              🗑️
-            </button>
-          </div>
-        </div>
-        <p className="mt-1 text-base text-gray-500">
-          {item.calories} kcal · {item.protein}g protein
-        </p>
-      </div>
-    </li>
-  );
+export function formatClockTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boolean }) {
-  const [insight, setInsight] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasFetched = useRef(false);
-
-  const fetchInsight = useCallback(
-    async (forceRefresh = false) => {
-      if (!hasMeals) return;
-      setLoading(true);
-      setError(null);
-
-      try {
-        if (!forceRefresh) {
-          // Check for a cached insight generated earlier today before
-          // burning a Gemini call — the free tier is capped at 20
-          // requests/day, shared across everyone using the app. Cached
-          // once per calendar day per user; only "Refresh insight" forces
-          // a new call.
-          const cached = await getCachedInsight();
-          if (cached) {
-            setInsight(cached.insight);
-            setLoading(false);
-            return;
-          }
-        }
-
-        const summary = buildMealSummary(meals);
-        const res = await fetch("/api/insight", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(summary),
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
-        setInsight(data.insight);
-        await saveCachedInsight(data.insight);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [meals, hasMeals]
-  );
-
-  useEffect(() => {
-    if (!hasMeals) {
-      hasFetched.current = false;
-      setInsight(null);
-      setError(null);
-      return;
-    }
-    if (!hasFetched.current) {
-      hasFetched.current = true;
-      fetchInsight(false);
-    }
-  }, [hasMeals, fetchInsight]);
-
-  if (!hasMeals) return null;
-
-  return (
-    <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-900">🤖 Today&apos;s Insight</h2>
-        <button
-          type="button"
-          onClick={() => fetchInsight(true)}
-          disabled={loading}
-          className="rounded-lg border border-green-200 bg-white px-2.5 py-1 text-base font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
-        >
-          Refresh insight
-        </button>
-      </div>
-
-      {loading && (
-        <div className="flex items-center gap-3 py-4">
-          <div className="animate-spin-slow h-5 w-5 rounded-full border-2 border-green-200 border-t-[#166534]" />
-          <p className="text-lg text-gray-500">AI is thinking...</p>
-        </div>
-      )}
-
-      {!loading && error && <p className="text-lg text-red-600">{error}</p>}
-
-      {!loading && insight && !error && (
-        <p className="animate-fade-slide-up text-lg leading-relaxed text-gray-700">{insight}</p>
-      )}
-    </section>
-  );
+// Builds a YYYY-MM-DD string from a Date's LOCAL components (year/month/day
+// as the device sees them) — never via toISOString(), which converts to
+// UTC and silently shifts the date backward for any timezone ahead of UTC
+// (like IST, UTC+5:30). That mismatch was causing streaks/trends to
+// attribute entries to the wrong calendar day.
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-function MealCard({ meal, onChanged }: { meal: LoggedMeal; onChanged: () => void }) {
-  const colors = getWindowColor(meal.type);
-  return (
-    <div className="w-[300px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg">
-      <div className="mb-3 flex items-center justify-between">
-        <span className={`inline-block rounded-full px-3 py-1 text-base font-semibold text-white ${colors.activeBg}`}>
-          {meal.type}
-        </span>
-        <span className="text-base font-medium text-gray-400">{meal.time}</span>
-      </div>
-      <ul className="space-y-2">
-        {meal.items.map((item) => (
-          <MealLogItem key={item.id} item={item} onChanged={onChanged} />
-        ))}
-      </ul>
-    </div>
-  );
-}
+type FoodMacros = { calories: number; protein: number; carbs: number; fat: number };
 
-export default function Dashboard() {
-  const [meals, setMeals] = useState<LoggedMeal[]>([]);
-  const [streak, setStreak] = useState(0);
-  const [weekTotals, setWeekTotals] = useState<DayTotal[]>([]);
-  const [mounted, setMounted] = useState(false);
-  const [loadingMeals, setLoadingMeals] = useState(true);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [expandedMacro, setExpandedMacro] = useState<MacroKey | null>(null);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const timelineRef = useRef<HTMLDivElement>(null);
+// Kept as a last-resort fallback if the food_library table is ever unreachable.
+const MOCK_FOOD_DB: Record<string, FoodMacros> = {
+  roti: { calories: 100, protein: 3, carbs: 18, fat: 2 },
+  dal: { calories: 180, protein: 10, carbs: 24, fat: 4 },
+  sabzi: { calories: 150, protein: 4, carbs: 12, fat: 8 },
+  rice: { calories: 210, protein: 4, carbs: 45, fat: 1 },
+  poha: { calories: 280, protein: 8, carbs: 42, fat: 9 },
+  paneer: { calories: 320, protein: 22, carbs: 8, fat: 24 },
+  idli: { calories: 120, protein: 4, carbs: 24, fat: 1 },
+  dosa: { calories: 250, protein: 6, carbs: 38, fat: 8 },
+  chai: { calories: 80, protein: 2, carbs: 12, fat: 3 },
+  naan: { calories: 260, protein: 8, carbs: 42, fat: 6 },
+  samosa: { calories: 140, protein: 3, carbs: 16, fat: 8 },
+  lassi: { calories: 150, protein: 5, carbs: 22, fat: 4 },
+};
 
-  function scrollTimeline(direction: "left" | "right") {
-    timelineRef.current?.scrollBy({ left: direction === "right" ? 300 : -300, behavior: "smooth" });
+type FoodLibraryRow = {
+  name: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
+
+// Short everyday words -> exact food_library item name.
+// Longer/more specific phrases (rajma, chana masala, vada pav) are matched
+// directly against the library names further down, no alias needed.
+const LIBRARY_ALIASES: Record<string, string> = {
+  roti: "Roti (Phulka)",
+  dal: "Dal Tadka",
+  sabzi: "Mixed Veg",
+  rice: "Steamed Rice",
+  poha: "Poha",
+  paneer: "Paneer Bhurji",
+  idli: "Idli",
+  dosa: "Dosa (plain)",
+  chai: "Chai (with milk)",
+  samosa: "Samosa",
+  lassi: "Lassi (sweet)",
+  coffee: "Black Coffee",
+  upma: "Upma",
+  khichdi: "Khichdi",
+  paratha: "Paratha (Plain)",
+  puri: "Puri",
+  curd: "Dahi (Curd)",
+  dahi: "Dahi (Curd)",
+  milk: "Milk (full fat)",
+};
+
+let libraryCache: FoodLibraryRow[] | null = null;
+
+async function getFoodLibrary(): Promise<FoodLibraryRow[]> {
+  if (libraryCache) return libraryCache;
+  const { data, error } = await supabase
+    .from("food_library")
+    .select("name, calories, protein_g, carbs_g, fat_g");
+
+  if (error || !data) {
+    libraryCache = [];
+    return libraryCache;
   }
 
-  const refresh = useCallback(async () => {
-    try {
-      const [data, streakCount, week] = await Promise.all([
-        loadTodayMeals(),
-        getStreak(),
-        getLast7DaysTotals(),
-      ]);
-      setMeals(data);
-      setStreak(streakCount);
-      setWeekTotals(week);
-      setSignedIn(true);
-    } catch (err) {
-      if (!(err instanceof Error && err.message === "Not signed in")) {
-        console.error("Failed to load meals:", err);
-      }
-      setMeals([]);
-      setStreak(0);
-      setWeekTotals([]);
-      setSignedIn(false);
-    } finally {
-      setLoadingMeals(false);
-    }
-  }, []);
+  libraryCache = data as FoodLibraryRow[];
+  return libraryCache;
+}
 
-  useEffect(() => {
-    refresh();
-    setMounted(true);
+function libraryRowToMacros(row: FoodLibraryRow): FoodMacros {
+  return {
+    calories: Number(row.calories),
+    protein: Number(row.protein_g),
+    carbs: Number(row.carbs_g),
+    fat: Number(row.fat_g),
+  };
+}
 
-    const onUpdate = () => refresh();
-    window.addEventListener("meals-updated", onUpdate);
-    window.addEventListener("focus", onUpdate);
+export function getTodayDate(): string {
+  return toLocalDateString(new Date());
+}
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-      refresh();
-    });
+async function getUserId(): Promise<string> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in");
+  return user.id;
+}
 
-    return () => {
-      window.removeEventListener("meals-updated", onUpdate);
-      window.removeEventListener("focus", onUpdate);
-      authListener.subscription.unsubscribe();
+type DbRow = {
+  id: string;
+  meal_type: string;
+  food_name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  logged_date: string;
+  created_at: string;
+};
+
+function rowToFoodItem(row: DbRow): FoodItem {
+  return {
+    id: row.id,
+    name: row.food_name,
+    calories: Number(row.calories),
+    protein: Number(row.protein),
+    carbs: Number(row.carbs),
+    fat: Number(row.fat),
+  };
+}
+
+function groupRowsIntoMeals(rows: DbRow[], date: string): LoggedMeal[] {
+  const groups = new Map<string, DbRow[]>();
+  for (const row of rows) {
+    const key = row.created_at;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(row);
+  }
+
+  const meals: LoggedMeal[] = Array.from(groups.entries()).map(([createdAt, groupRows]) => {
+    const time = new Date(createdAt);
+    return {
+      id: createdAt,
+      type: groupRows[0].meal_type,
+      time: formatClockTime(time),
+      items: groupRows.map(rowToFoodItem),
+      date,
     };
-  }, [refresh]);
+  });
 
+  meals.sort((a, b) => (a.id < b.id ? -1 : 1));
+  return meals;
+}
+
+export async function loadTodayMeals(): Promise<LoggedMeal[]> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("logged_date", today)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return groupRowsIntoMeals((data ?? []) as DbRow[], today);
+}
+
+// windowOverride lets the log screen tag an entry with a manually chosen
+// time window (e.g. logging at 10 PM something actually eaten in the
+// morning) instead of always using the current clock time.
+export async function saveMeal(
+  items: Omit<FoodItem, "id">[],
+  windowOverride?: string
+): Promise<LoggedMeal> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+  const now = new Date();
+  const windowLabel = windowOverride ?? getTimeWindowLabel(now);
+
+  const rows = items.map((item) => ({
+    user_id: userId,
+    meal_type: windowLabel,
+    food_name: item.name,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    logged_date: today,
+  }));
+
+  const { data, error } = await supabase.from("logged_meals").insert(rows).select();
+
+  if (error) throw error;
+
+  window.dispatchEvent(new Event("meals-updated"));
+
+  const inserted = data as DbRow[];
+  const createdAt = inserted[0]?.created_at ?? now.toISOString();
+
+  return {
+    id: createdAt,
+    type: windowLabel,
+    time: formatClockTime(new Date(createdAt)),
+    items: inserted.map(rowToFoodItem),
+    date: today,
+  };
+}
+
+export async function clearTodayMeals(): Promise<void> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  const { error } = await supabase
+    .from("logged_meals")
+    .delete()
+    .eq("user_id", userId)
+    .eq("logged_date", today);
+
+  if (error) throw error;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+export async function deleteFoodItem(itemId: string): Promise<void> {
+  const { error } = await supabase.from("logged_meals").delete().eq("id", itemId);
+
+  if (error) throw error;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+export async function updateFoodItem(
+  itemId: string,
+  updates: { name: string; calories: number }
+): Promise<void> {
+  const { data: existing, error: fetchError } = await supabase
+    .from("logged_meals")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const row = existing as DbRow;
+  const oldCalories = Number(row.calories);
+  const ratio = oldCalories > 0 ? updates.calories / oldCalories : 1;
+
+  const { error: updateError } = await supabase
+    .from("logged_meals")
+    .update({
+      food_name: updates.name,
+      calories: updates.calories,
+      protein: Math.round(Number(row.protein) * ratio * 10) / 10,
+      carbs: Math.round(Number(row.carbs) * ratio * 10) / 10,
+      fat: Math.round(Number(row.fat) * ratio * 10) / 10,
+    })
+    .eq("id", itemId);
+
+  if (updateError) throw updateError;
+  window.dispatchEvent(new Event("meals-updated"));
+}
+
+// Counts consecutive days (going backward from today, in LOCAL time) that
+// have at least one logged_meals row. Uses local-date string comparisons
+// throughout — no toISOString() — so it doesn't misattribute entries
+// across the IST/UTC boundary.
+export async function getStreak(): Promise<number> {
+  const userId = await getUserId();
+  const { data, error } = await supabase.from("logged_meals").select("logged_date").eq("user_id", userId);
+
+  if (error) throw error;
+
+  const dateSet = new Set((data ?? []).map((r) => r.logged_date as string));
+  if (dateSet.size === 0) return 0;
+
+  const todayStr = getTodayDate();
+  const cursor = new Date();
+  if (!dateSet.has(todayStr)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let streak = 0;
+  while (true) {
+    const key = toLocalDateString(cursor);
+    if (dateSet.has(key)) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// Last 7 days (including today) of total calories per day, for the
+// "Last 7 Days" trend section. Returns oldest -> newest. Uses local-date
+// strings throughout so day boundaries match the device's real calendar
+// day, not a UTC-shifted one.
+export async function getLast7DaysTotals(): Promise<DayTotal[]> {
+  const userId = await getUserId();
+
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - 6);
+  const startStr = toLocalDateString(startDate);
+
+  const { data, error } = await supabase
+    .from("logged_meals")
+    .select("logged_date, calories")
+    .eq("user_id", userId)
+    .gte("logged_date", startStr);
+
+  if (error) throw error;
+
+  const totalsByDate = new Map<string, number>();
+  for (const row of (data ?? []) as { logged_date: string; calories: number }[]) {
+    const prev = totalsByDate.get(row.logged_date) ?? 0;
+    totalsByDate.set(row.logged_date, prev + Number(row.calories));
+  }
+
+  const days: DayTotal[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = toLocalDateString(d);
+    days.push({
+      date: dateStr,
+      dayLabel: d.toLocaleDateString([], { weekday: "short" }),
+      calories: Math.round(totalsByDate.get(dateStr) ?? 0),
+    });
+  }
+
+  return days;
+}
+
+// Returns today's already-generated insight if one exists, so we don't
+// burn another Gemini call (free tier is capped at 20 requests/day,
+// shared across everyone using the app). Cached once per calendar day
+// per user.
+export async function getCachedInsight(): Promise<CachedInsight | null> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  const { data, error } = await supabase
+    .from("daily_insights")
+    .select("insight, created_at")
+    .eq("user_id", userId)
+    .eq("logged_date", today)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return { insight: data.insight as string, createdAt: data.created_at as string };
+}
+
+export async function saveCachedInsight(insight: string): Promise<void> {
+  const userId = await getUserId();
+  const today = getTodayDate();
+
+  await supabase
+    .from("daily_insights")
+    .upsert(
+      { user_id: userId, logged_date: today, insight },
+      { onConflict: "user_id,logged_date" }
+    );
+}
+
+export function buildMealSummary(meals: LoggedMeal[]) {
   const totals = computeTotals(meals);
-  const allItems = getAllFoodItems(meals);
-  const hasMeals = meals.length > 0;
-  const calorieProgress = totals.calories / CALORIE_GOAL;
-  const nearGoal = calorieProgress >= 0.9;
+  return {
+    totals,
+    meals: meals.map((meal) => ({
+      type: meal.type,
+      time: meal.time,
+      items: meal.items.map((item) => ({
+        name: item.name,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+      })),
+    })),
+  };
+}
 
-  useEffect(() => {
-    if (mounted && nearGoal) {
-      setShowConfetti(true);
-      const timer = setTimeout(() => setShowConfetti(false), 3500);
-      return () => clearTimeout(timer);
-    }
-  }, [mounted, nearGoal]);
+// Async: looks food items up against the real food_library table first,
+// falls back to the small MOCK_FOOD_DB, and finally to a generic estimate.
+export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
+  const parts = input
+    .toLowerCase()
+    .split(/[,+&]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  async function handleClearToday() {
-    if (confirm("Clear all meals logged today?")) {
-      try {
-        await clearTodayMeals();
-        await refresh();
-        setExpandedMacro(null);
-      } catch (err) {
-        console.error("Clear failed:", err);
+  if (parts.length === 0) return [];
+
+  const library = await getFoodLibrary();
+
+  const sortedAliasKeys = Object.keys(LIBRARY_ALIASES).sort((a, b) => b.length - a.length);
+
+  return parts.map((part) => {
+    const qtyMatch = part.match(/(\d+)/);
+    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+    const displayName = part.charAt(0).toUpperCase() + part.slice(1);
+
+    const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
+
+    if (aliasKey) {
+      const targetName = LIBRARY_ALIASES[aliasKey];
+      const row = library.find((r) => r.name === targetName);
+      if (row) {
+        const base = libraryRowToMacros(row);
+        return {
+          name: displayName,
+          calories: base.calories * qty,
+          protein: base.protein * qty,
+          carbs: base.carbs * qty,
+          fat: base.fat * qty,
+        };
       }
+
+      const mockKey = Object.keys(MOCK_FOOD_DB).find((key) => part.includes(key));
+      if (mockKey) {
+        const base = MOCK_FOOD_DB[mockKey];
+        return {
+          name: displayName,
+          calories: base.calories * qty,
+          protein: base.protein * qty,
+          carbs: base.carbs * qty,
+          fat: base.fat * qty,
+        };
+      }
+
+      return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
     }
-  }
 
-  function toggleMacro(key: MacroKey) {
-    setExpandedMacro((prev) => (prev === key ? null : key));
-  }
+    const directMatch = library.find((r) => part.includes(r.name.split(" (")[0].toLowerCase()));
+    if (directMatch) {
+      const base = libraryRowToMacros(directMatch);
+      return {
+        name: displayName,
+        calories: base.calories * qty,
+        protein: base.protein * qty,
+        carbs: base.carbs * qty,
+        fat: base.fat * qty,
+      };
+    }
 
-  return (
-    <div className="relative min-h-screen bg-gradient-to-b from-white to-[#f0fdf4] pb-24">
-      {showConfetti && <ConfettiBurst />}
+    const mockKey = Object.keys(MOCK_FOOD_DB).find((key) => part.includes(key));
+    if (mockKey) {
+      const base = MOCK_FOOD_DB[mockKey];
+      return {
+        name: displayName,
+        calories: base.calories * qty,
+        protein: base.protein * qty,
+        carbs: base.carbs * qty,
+        fat: base.fat * qty,
+      };
+    }
 
-      <div className="mx-auto w-full max-w-[375px] px-4 py-6">
-        <header className="mb-6 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Today</h1>
-            <p className="text-lg text-gray-500">Indian vegetarian meals</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <AuthButton />
-          </div>
-        </header>
+    return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
+  });
+}
 
-        {!loadingMeals && signedIn && (
-          <div className="mb-6 flex items-center justify-between">
-            <StreakBadge streak={streak} />
-            {hasMeals && (
-              <button
-                type="button"
-                onClick={handleClearToday}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-base font-medium text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:text-red-600"
-              >
-                Clear today
-              </button>
-            )}
-          </div>
-        )}
-
-        {!loadingMeals && signedIn === false && (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-center shadow-lg">
-            <p className="text-lg font-medium text-amber-800">Sign in to start tracking your meals.</p>
-            <p className="mt-1 text-base text-amber-700">
-              Use the Google sign-in button above — your data is saved to your account.
-            </p>
-          </div>
-        )}
-
-        {loadingMeals && (
-          <div className="mb-6 flex justify-center py-10">
-            <div className="animate-spin-slow h-6 w-6 rounded-full border-2 border-green-200 border-t-[#166534]" />
-          </div>
-        )}
-
-        {!loadingMeals && signedIn && (
-          <>
-            <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-6 shadow-lg">
-              <CalorieRing consumed={totals.calories} goal={CALORIE_GOAL} animate={mounted} />
-              {nearGoal && (
-                <p className="animate-fade-slide-up mt-3 text-center text-lg font-semibold text-orange-600">
-                  🎉 Goal almost reached!
-                </p>
-              )}
-              <p className="mt-3 text-center text-lg text-gray-500">
-                {CALORIE_GOAL - totals.calories > 0
-                  ? `${CALORIE_GOAL - totals.calories} kcal remaining`
-                  : totals.calories > 0
-                    ? "Goal reached"
-                    : "Log a meal to get started"}
-              </p>
-            </section>
-
-            <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
-              <h2 className="text-xl font-semibold text-gray-900">Macros</h2>
-              {MACRO_CONFIG.map((macro) => (
-                <MacroBar
-                  key={macro.key}
-                  macroKey={macro.key}
-                  label={macro.label}
-                  icon={macro.icon}
-                  consumed={totals[macro.key]}
-                  goal={macro.goal}
-                  animate={mounted}
-                  stagger={macro.stagger}
-                  items={allItems}
-                  expanded={expandedMacro === macro.key}
-                  onToggle={() => toggleMacro(macro.key)}
-                />
-              ))}
-
-              <div className="border-t border-green-100/80 pt-4">
-                <p className="mb-3 text-center text-sm font-medium uppercase tracking-wide text-gray-400">Macro split</p>
-                <MacroDoughnut protein={totals.protein} carbs={totals.carbs} fat={totals.fat} animate={mounted} />
-              </div>
-            </section>
-
-            {weekTotals.length > 0 && <WeeklyTrend days={weekTotals} goal={CALORIE_GOAL} />}
-
-            <TodaysInsight meals={meals} hasMeals={hasMeals} />
-
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
-                {meals.length > 1 && (
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => scrollTimeline("left")}
-                      aria-label="Scroll timeline left"
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl text-[#166534] shadow-md active:scale-90"
-                    >
-                      ←
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => scrollTimeline("right")}
-                      aria-label="Scroll timeline right"
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-[#166534] text-2xl text-white shadow-md active:scale-90"
-                    >
-                      →
-                    </button>
-                  </div>
-                )}
-              </div>
-              {!hasMeals && (
-                <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-lg text-gray-500 shadow-lg">
-                  Nothing logged yet. Tap + to add what you just ate.
-                </p>
-              )}
-              {hasMeals && (
-                <div ref={timelineRef} className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
-                  {meals.map((meal) => (
-                    <MealCard key={meal.id} meal={meal} onChanged={refresh} />
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
-        )}
-      </div>
-
-      {signedIn && (
-        <Link
-          href="/log"
-          aria-label="Log a meal"
-          className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg"
-        >
-          +
-        </Link>
-      )}
-    </div>
+export function computeTotals(meals: LoggedMeal[]) {
+  return meals.flatMap((m) => m.items).reduce(
+    (acc, item) => ({
+      calories: acc.calories + item.calories,
+      protein: acc.protein + item.protein,
+      carbs: acc.carbs + item.carbs,
+      fat: acc.fat + item.fat,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
+}
+
+export function getAllFoodItems(meals: LoggedMeal[]): FoodItem[] {
+  return meals.flatMap((m) => m.items);
+}
+
+export function getMacroTrafficColor(consumed: number, goal: number): string {
+  const ratio = consumed / goal;
+  if (ratio > 1) return "#ef4444";
+  if (ratio >= 0.8) return "#f59e0b";
+  return "#22c55e";
+}
+
+export function getRingGradientId(progressRatio: number): string {
+  const pct = progressRatio * 100;
+  if (pct >= 90) return "ring-gradient-red";
+  if (pct >= 70) return "ring-gradient-orange";
+  return "ring-gradient-green";
+}
+
+export function getFoodEmoji(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("dal") || n.includes("lentil")) return "🍲";
+  if (n.includes("roti") || n.includes("naan") || n.includes("bread") || n.includes("dosa") || n.includes("idli"))
+    return "🫓";
+  if (n.includes("rice") || n.includes("poha")) return "🍚";
+  if (n.includes("sabzi") || n.includes("gobi") || n.includes("vegetable") || n.includes("salad") || n.includes("aloo"))
+    return "🥗";
+  if (n.includes("paneer") || n.includes("raita") || n.includes("dairy") || n.includes("lassi") || n.includes("curd"))
+    return "🧀";
+  if (n.includes("chai") || n.includes("tea") || n.includes("coffee") || n.includes("beverage")) return "☕";
+  if (n.includes("samosa") || n.includes("snack") || n.includes("pakora")) return "🥟";
+  if (n.includes("sweet") || n.includes("kheer") || n.includes("halwa") || n.includes("jalebi") || n.includes("gulab"))
+    return "🍮";
+  return "🥗";
 }
