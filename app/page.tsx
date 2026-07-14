@@ -280,6 +280,7 @@ function MacroBar({
                 <li key={item.id} className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-base">
                   <span className="text-gray-700">
                     {getFoodEmoji(item.name)} {item.name}
+                    {item.isEstimated && <span className="ml-1 text-xs text-amber-600">(est.)</span>}
                   </span>
                   <span className="font-medium text-gray-600">{item[macroKey]}g</span>
                 </li>
@@ -542,9 +543,16 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
             </button>
           </div>
         </div>
-        <p className="mt-1 text-base text-gray-500">
-          {item.calories} kcal · {item.protein}g protein
-        </p>
+        <div className="mt-1 flex items-center gap-2">
+          <p className="text-base text-gray-500">
+            {item.calories} kcal · {item.protein}g protein
+          </p>
+          {item.isEstimated && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              Estimated
+            </span>
+          )}
+        </div>
       </div>
     </li>
   );
@@ -564,11 +572,6 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
 
       try {
         if (!forceRefresh) {
-          // Check for a cached insight generated earlier today before
-          // burning a Gemini call — the free tier is capped at 20
-          // requests/day, shared across everyone using the app. Cached
-          // once per calendar day per user; only "Refresh insight" forces
-          // a new call.
           const cached = await getCachedInsight();
           if (cached) {
             setInsight(cached.insight);
