@@ -374,7 +374,7 @@ function MacroDoughnut({
 
 function WeeklyTrend({ days, goal }: { days: DayTotal[]; goal: number }) {
   const maxValue = Math.max(goal, ...days.map((d) => d.calories), 1);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = days.length > 0 ? days[days.length - 1].date : "";
   const hasAnyData = days.some((d) => d.calories > 0);
 
   return (
@@ -556,8 +556,6 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
   const [error, setError] = useState<string | null>(null);
   const hasFetched = useRef(false);
 
-  const totalItemCount = meals.reduce((sum, m) => sum + m.items.length, 0);
-
   const fetchInsight = useCallback(
     async (forceRefresh = false) => {
       if (!hasMeals) return;
@@ -566,11 +564,13 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
 
       try {
         if (!forceRefresh) {
-          // Check for a cached insight generated earlier today — but only
-          // use it if the item count still matches. If new items were
-          // logged since, the cache is stale and we regenerate.
+          // Check for a cached insight generated earlier today before
+          // burning a Gemini call — the free tier is capped at 20
+          // requests/day, shared across everyone using the app. Cached
+          // once per calendar day per user; only "Refresh insight" forces
+          // a new call.
           const cached = await getCachedInsight();
-          if (cached && cached.itemCount === totalItemCount) {
+          if (cached) {
             setInsight(cached.insight);
             setLoading(false);
             return;
@@ -587,14 +587,14 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
         setInsight(data.insight);
-        await saveCachedInsight(data.insight, totalItemCount);
+        await saveCachedInsight(data.insight);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
       } finally {
         setLoading(false);
       }
     },
-    [meals, hasMeals, totalItemCount]
+    [meals, hasMeals]
   );
 
   useEffect(() => {
@@ -604,11 +604,11 @@ function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boo
       setError(null);
       return;
     }
-    // Re-fetch (cache-first) whenever the item count changes, not just
-    // on first mount — so a newly logged item updates the insight.
-    fetchInsight(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMeals, totalItemCount]);
+    if (!hasFetched.current) {
+      hasFetched.current = true;
+      fetchInsight(false);
+    }
+  }, [hasMeals, fetchInsight]);
 
   if (!hasMeals) return null;
 
