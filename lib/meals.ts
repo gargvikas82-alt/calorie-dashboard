@@ -7,6 +7,7 @@ export type FoodItem = {
   protein: number;
   carbs: number;
   fat: number;
+  isEstimated: boolean;
 };
 
 export type LoggedMeal = {
@@ -49,7 +50,6 @@ const WINDOW_COLORS: Record<string, WindowColorSet> = {
   "Late Night": { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-400", activeBg: "bg-slate-600" },
 };
 
-// Ordered list of all 8 time windows, for building the override picker UI.
 export const TIME_WINDOWS: string[] = Object.keys(WINDOW_COLORS);
 
 export function getWindowColor(label: string): WindowColorSet {
@@ -72,10 +72,6 @@ export function formatClockTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-// Builds a YYYY-MM-DD string from a Date's LOCAL components (year/month/day
-// as the device sees them) — never via toISOString(), which converts to
-// UTC and silently shifts the date backward for any timezone ahead of UTC
-// (like IST, UTC+5:30).
 function toLocalDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -85,7 +81,10 @@ function toLocalDateString(date: Date): string {
 
 type FoodMacros = { calories: number; protein: number; carbs: number; fat: number };
 
-// Kept as a last-resort fallback if the food_library table is ever unreachable.
+// Kept as a last-resort fallback if the food_library table is ever
+// unreachable. Treated as an ESTIMATE, not verified data, same as the
+// generic fallback — these numbers are reasonable guesses, not sourced
+// from the ICMR-NIN/INDB dataset.
 const MOCK_FOOD_DB: Record<string, FoodMacros> = {
   roti: { calories: 100, protein: 3, carbs: 18, fat: 2 },
   dal: { calories: 180, protein: 10, carbs: 24, fat: 4 },
@@ -109,7 +108,6 @@ type FoodLibraryRow = {
   fat_g: number;
 };
 
-// Short everyday words -> exact food_library item name.
 const LIBRARY_ALIASES: Record<string, string> = {
   roti: "Roti (Phulka)",
   dal: "Dal Tadka",
@@ -132,13 +130,6 @@ const LIBRARY_ALIASES: Record<string, string> = {
   milk: "Milk (full fat)",
 };
 
-// Combo dishes that are commonly eaten as a pair but exist as two separate
-// food_library rows (e.g. Chole Bhature = chickpea curry + fried bread).
-// Checked before single-item matching. If BOTH components resolve to a
-// real library row, their macros are summed under one display name. If
-// either component is missing, we deliberately do NOT combine a real
-// number with a guess — it falls through to normal matching instead,
-// which lands on the generic estimate if nothing else matches.
 const COMBO_DISHES: Record<string, string[]> = {
   "chole bhature": ["chickpeas curry", "bhatura"],
   "chana bhatura": ["chickpeas curry", "bhatura"],
@@ -177,10 +168,6 @@ function libraryRowToMacros(row: FoodLibraryRow): FoodMacros {
   };
 }
 
-// Finds a library row whose name (lowercased) contains the given search
-// term. Used for combo-dish component lookup, which searches against
-// full names (unlike the stricter split-on-"(" logic used for direct
-// single-item matching below).
 function findLibraryRow(library: FoodLibraryRow[], searchTerm: string): FoodLibraryRow | undefined {
   return library.find((r) => r.name.toLowerCase().includes(searchTerm));
 }
@@ -207,6 +194,7 @@ type DbRow = {
   fat: number;
   logged_date: string;
   created_at: string;
+  is_estimated: boolean;
 };
 
 function rowToFoodItem(row: DbRow): FoodItem {
@@ -217,6 +205,7 @@ function rowToFoodItem(row: DbRow): FoodItem {
     protein: Number(row.protein),
     carbs: Number(row.carbs),
     fat: Number(row.fat),
+    isEstimated: Boolean(row.is_estimated),
   };
 }
 
@@ -275,6 +264,7 @@ export async function saveMeal(
     carbs: item.carbs,
     fat: item.fat,
     logged_date: today,
+    is_estimated: item.isEstimated,
   }));
 
   const { data, error } = await supabase.from("logged_meals").insert(rows).select();
@@ -459,7 +449,10 @@ export function buildMealSummary(meals: LoggedMeal[]) {
 
 // Async: checks combo-dish pairs first, then looks food items up against
 // the real food_library table, falls back to the small MOCK_FOOD_DB, and
-// finally to a generic estimate.
+// finally to a generic estimate. Every returned item carries isEstimated:
+// true when the numbers are NOT sourced from food_library (i.e. from
+// MOCK_FOOD_DB or the generic guess) — so the UI can be upfront about
+// which numbers are verified and which are best-guess.
 export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
   const parts = input
     .toLowerCase()
@@ -479,8 +472,6 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
     const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
     const displayName = part.charAt(0).toUpperCase() + part.slice(1);
 
-    // Combo dishes first — e.g. "chole bhature" resolves to two summed
-    // library rows if both components are found.
     const comboKey = sortedComboKeys.find((key) => part.includes(key));
     if (comboKey) {
       const componentTerms = COMBO_DISHES[comboKey];
@@ -504,10 +495,9 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
           protein: combined.protein * qty,
           carbs: combined.carbs * qty,
           fat: combined.fat * qty,
+          isEstimated: false,
         };
       }
-      // Components not both found — fall through to normal matching below
-      // rather than mixing a real number with a guess.
     }
 
     const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
@@ -523,6 +513,7 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
           protein: base.protein * qty,
           carbs: base.carbs * qty,
           fat: base.fat * qty,
+          isEstimated: false,
         };
       }
 
@@ -535,10 +526,11 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
           protein: base.protein * qty,
           carbs: base.carbs * qty,
           fat: base.fat * qty,
+          isEstimated: true,
         };
       }
 
-      return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
+      return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4, isEstimated: true };
     }
 
     const directMatch = library.find((r) => part.includes(r.name.split(" (")[0].toLowerCase()));
@@ -550,6 +542,7 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
         protein: base.protein * qty,
         carbs: base.carbs * qty,
         fat: base.fat * qty,
+        isEstimated: false,
       };
     }
 
@@ -562,10 +555,11 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
         protein: base.protein * qty,
         carbs: base.carbs * qty,
         fat: base.fat * qty,
+        isEstimated: true,
       };
     }
 
-    return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
+    return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4, isEstimated: true };
   });
 }
 
