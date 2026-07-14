@@ -26,7 +26,6 @@ export type DayTotal = {
 export type CachedInsight = {
   insight: string;
   createdAt: string;
-  itemCount: number;
 };
 
 export const CALORIE_GOAL = 2000;
@@ -71,6 +70,18 @@ export function getTimeWindowLabel(date: Date): string {
 
 export function formatClockTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// Builds a YYYY-MM-DD string from a Date's LOCAL components (year/month/day
+// as the device sees them) — never via toISOString(), which converts to
+// UTC and silently shifts the date backward for any timezone ahead of UTC
+// (like IST, UTC+5:30). That mismatch was causing streaks/trends to
+// attribute entries to the wrong calendar day.
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 type FoodMacros = { calories: number; protein: number; carbs: number; fat: number };
@@ -151,7 +162,7 @@ function libraryRowToMacros(row: FoodLibraryRow): FoodMacros {
 }
 
 export function getTodayDate(): string {
-  return new Date().toISOString().split("T")[0];
+  return toLocalDateString(new Date());
 }
 
 async function getUserId(): Promise<string> {
@@ -315,6 +326,10 @@ export async function updateFoodItem(
   window.dispatchEvent(new Event("meals-updated"));
 }
 
+// Counts consecutive days (going backward from today, in LOCAL time) that
+// have at least one logged_meals row. Fixed to use local-date string
+// comparisons throughout — no toISOString() — so it no longer
+// misattributes entries across the IST/UTC boundary.
 export async function getStreak(): Promise<number> {
   const userId = await getUserId();
   const { data, error } = await supabase.from("logged_meals").select("logged_date").eq("user_id", userId);
@@ -325,14 +340,14 @@ export async function getStreak(): Promise<number> {
   if (dateSet.size === 0) return 0;
 
   const todayStr = getTodayDate();
-  const cursor = new Date(todayStr + "T00:00:00");
+  const cursor = new Date();
   if (!dateSet.has(todayStr)) {
     cursor.setDate(cursor.getDate() - 1);
   }
 
   let streak = 0;
   while (true) {
-    const key = cursor.toISOString().split("T")[0];
+    const key = toLocalDateString(cursor);
     if (dateSet.has(key)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
@@ -344,14 +359,16 @@ export async function getStreak(): Promise<number> {
 }
 
 // Last 7 days (including today) of total calories per day, for the
-// "Last 7 Days" trend section. Returns oldest -> newest.
+// "Last 7 Days" trend section. Returns oldest -> newest. Uses local-date
+// strings throughout so day boundaries match the device's real calendar
+// day, not a UTC-shifted one.
 export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   const userId = await getUserId();
 
   const today = new Date();
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - 6);
-  const startStr = startDate.toISOString().split("T")[0];
+  const startStr = toLocalDateString(startDate);
 
   const { data, error } = await supabase
     .from("logged_meals")
@@ -371,7 +388,7 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split("T")[0];
+    const dateStr = toLocalDateString(d);
     days.push({
       date: dateStr,
       dayLabel: d.toLocaleDateString([], { weekday: "short" }),
@@ -382,37 +399,34 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   return days;
 }
 
-// Returns today's already-generated insight if one exists AND it still
-// matches the current number of logged items. If new items were logged
-// since the insight was generated, the cache is considered stale and
-// null is returned so a fresh insight gets generated (and re-cached).
+// Returns today's already-generated insight if one exists, so we don't
+// burn another Gemini call (free tier is capped at 20 requests/day,
+// shared across everyone using the app). Cached once per calendar day
+// per user — regenerating on every new logged item was reverted since
+// it defeated the purpose of caching and burned quota far too fast.
 export async function getCachedInsight(): Promise<CachedInsight | null> {
   const userId = await getUserId();
   const today = getTodayDate();
 
   const { data, error } = await supabase
     .from("daily_insights")
-    .select("insight, created_at, item_count")
+    .select("insight, created_at")
     .eq("user_id", userId)
     .eq("logged_date", today)
     .maybeSingle();
 
   if (error || !data) return null;
-  return {
-    insight: data.insight as string,
-    createdAt: data.created_at as string,
-    itemCount: data.item_count as number,
-  };
+  return { insight: data.insight as string, createdAt: data.created_at as string };
 }
 
-export async function saveCachedInsight(insight: string, itemCount: number): Promise<void> {
+export async function saveCachedInsight(insight: string): Promise<void> {
   const userId = await getUserId();
   const today = getTodayDate();
 
   await supabase
     .from("daily_insights")
     .upsert(
-      { user_id: userId, logged_date: today, insight, item_count: itemCount },
+      { user_id: userId, logged_date: today, insight },
       { onConflict: "user_id,logged_date" }
     );
 }
@@ -458,11 +472,6 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
     const aliasKey = sortedAliasKeys.find((key) => part.includes(key));
 
     if (aliasKey) {
-      // An alias matched. Commit to it — resolve against its exact target
-      // row, or drop straight to mock/generic. Do NOT fall through to
-      // direct substring matching below, which can opportunistically grab
-      // an unrelated library row (e.g. "dal" grabbing "Chana Dal" instead
-      // of the intended "Dal Tadka").
       const targetName = LIBRARY_ALIASES[aliasKey];
       const row = library.find((r) => r.name === targetName);
       if (row) {
@@ -491,9 +500,6 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
       return { name: displayName, calories: 120, protein: 3, carbs: 15, fat: 4 };
     }
 
-    // No alias matched — try a direct substring match against any
-    // food_library item name (handles longer, specific phrases like
-    // "rajma" or "vada pav" that don't need an alias entry).
     const directMatch = library.find((r) => part.includes(r.name.split(" (")[0].toLowerCase()));
     if (directMatch) {
       const base = libraryRowToMacros(directMatch);
