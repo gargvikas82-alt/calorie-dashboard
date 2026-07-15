@@ -82,9 +82,7 @@ function toLocalDateString(date: Date): string {
 type FoodMacros = { calories: number; protein: number; carbs: number; fat: number };
 
 // Kept as a last-resort fallback if the food_library table is ever
-// unreachable. Treated as an ESTIMATE, not verified data, same as the
-// generic fallback — these numbers are reasonable guesses, not sourced
-// from the ICMR-NIN/INDB dataset.
+// unreachable. Treated as an ESTIMATE, not verified data.
 const MOCK_FOOD_DB: Record<string, FoodMacros> = {
   roti: { calories: 100, protein: 3, carbs: 18, fat: 2 },
   dal: { calories: 180, protein: 10, carbs: 24, fat: 4 },
@@ -449,10 +447,7 @@ export function buildMealSummary(meals: LoggedMeal[]) {
 
 // Async: checks combo-dish pairs first, then looks food items up against
 // the real food_library table, falls back to the small MOCK_FOOD_DB, and
-// finally to a generic estimate. Every returned item carries isEstimated:
-// true when the numbers are NOT sourced from food_library (i.e. from
-// MOCK_FOOD_DB or the generic guess) — so the UI can be upfront about
-// which numbers are verified and which are best-guess.
+// finally to a generic estimate. Every returned item carries isEstimated.
 export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
   const parts = input
     .toLowerCase()
@@ -563,8 +558,10 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
   });
 }
 
+// Rounds totals before returning to avoid floating-point display noise
+// (e.g. 62.800000000000004g from repeated decimal addition across items).
 export function computeTotals(meals: LoggedMeal[]) {
-  return meals.flatMap((m) => m.items).reduce(
+  const raw = meals.flatMap((m) => m.items).reduce(
     (acc, item) => ({
       calories: acc.calories + item.calories,
       protein: acc.protein + item.protein,
@@ -573,6 +570,12 @@ export function computeTotals(meals: LoggedMeal[]) {
     }),
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
+  return {
+    calories: Math.round(raw.calories),
+    protein: Math.round(raw.protein * 10) / 10,
+    carbs: Math.round(raw.carbs * 10) / 10,
+    fat: Math.round(raw.fat * 10) / 10,
+  };
 }
 
 export function getAllFoodItems(meals: LoggedMeal[]): FoodItem[] {
