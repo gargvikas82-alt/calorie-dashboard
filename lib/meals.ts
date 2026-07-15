@@ -81,8 +81,6 @@ function toLocalDateString(date: Date): string {
 
 type FoodMacros = { calories: number; protein: number; carbs: number; fat: number };
 
-// Kept as a last-resort fallback if the food_library table is ever
-// unreachable. Treated as an ESTIMATE, not verified data.
 const MOCK_FOOD_DB: Record<string, FoodMacros> = {
   roti: { calories: 100, protein: 3, carbs: 18, fat: 2 },
   dal: { calories: 180, protein: 10, carbs: 24, fat: 4 },
@@ -283,6 +281,9 @@ export async function saveMeal(
   };
 }
 
+// Clears today's logged meals AND today's cached insight — otherwise a
+// stale insight from before the clear would keep showing, referencing
+// food that's no longer part of today's log.
 export async function clearTodayMeals(): Promise<void> {
   const userId = await getUserId();
   const today = getTodayDate();
@@ -294,6 +295,13 @@ export async function clearTodayMeals(): Promise<void> {
     .eq("logged_date", today);
 
   if (error) throw error;
+
+  await supabase
+    .from("daily_insights")
+    .delete()
+    .eq("user_id", userId)
+    .eq("logged_date", today);
+
   window.dispatchEvent(new Event("meals-updated"));
 }
 
@@ -445,9 +453,6 @@ export function buildMealSummary(meals: LoggedMeal[]) {
   };
 }
 
-// Async: checks combo-dish pairs first, then looks food items up against
-// the real food_library table, falls back to the small MOCK_FOOD_DB, and
-// finally to a generic estimate. Every returned item carries isEstimated.
 export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> {
   const parts = input
     .toLowerCase()
@@ -558,8 +563,6 @@ export async function parseMeal(input: string): Promise<Omit<FoodItem, "id">[]> 
   });
 }
 
-// Rounds totals before returning to avoid floating-point display noise
-// (e.g. 62.800000000000004g from repeated decimal addition across items).
 export function computeTotals(meals: LoggedMeal[]) {
   const raw = meals.flatMap((m) => m.items).reduce(
     (acc, item) => ({
