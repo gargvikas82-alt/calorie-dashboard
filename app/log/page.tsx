@@ -94,9 +94,6 @@ export default function LogMealPage() {
       setResults(parsed);
       setLoggedWindow(saved.type);
       setShowSuccess(true);
-      // Always snap the picker back to the current real-time window after
-      // a successful save, so the next entry (quick-add or typed) doesn't
-      // silently inherit a stale manual selection from a moment ago.
       setSelectedWindow(getTimeWindowLabel(new Date()));
     } catch (err) {
       if (err instanceof Error && err.message === "Not signed in") {
@@ -226,7 +223,14 @@ export default function LogMealPage() {
                   key={item.name}
                   className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm"
                 >
-                  <span className="text-base text-gray-800">{item.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base text-gray-800">{item.name}</span>
+                    {item.isEstimated && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        Estimated
+                      </span>
+                    )}
+                  </div>
                   <div className="text-right text-sm text-gray-500">
                     <p className="font-medium text-gray-700">{item.calories} kcal</p>
                     <p>{item.protein}g protein</p>
