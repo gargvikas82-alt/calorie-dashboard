@@ -24,11 +24,6 @@ export type DayTotal = {
   calories: number;
 };
 
-export type CachedInsight = {
-  insight: string;
-  createdAt: string;
-};
-
 export const CALORIE_GOAL = 2000;
 
 export const MACRO_GOALS = {
@@ -281,9 +276,6 @@ export async function saveMeal(
   };
 }
 
-// Clears today's logged meals AND today's cached insight — otherwise a
-// stale insight from before the clear would keep showing, referencing
-// food that's no longer part of today's log.
 export async function clearTodayMeals(): Promise<void> {
   const userId = await getUserId();
   const today = getTodayDate();
@@ -295,13 +287,6 @@ export async function clearTodayMeals(): Promise<void> {
     .eq("logged_date", today);
 
   if (error) throw error;
-
-  await supabase
-    .from("daily_insights")
-    .delete()
-    .eq("user_id", userId)
-    .eq("logged_date", today);
-
   window.dispatchEvent(new Event("meals-updated"));
 }
 
@@ -406,33 +391,6 @@ export async function getLast7DaysTotals(): Promise<DayTotal[]> {
   }
 
   return days;
-}
-
-export async function getCachedInsight(): Promise<CachedInsight | null> {
-  const userId = await getUserId();
-  const today = getTodayDate();
-
-  const { data, error } = await supabase
-    .from("daily_insights")
-    .select("insight, created_at")
-    .eq("user_id", userId)
-    .eq("logged_date", today)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return { insight: data.insight as string, createdAt: data.created_at as string };
-}
-
-export async function saveCachedInsight(insight: string): Promise<void> {
-  const userId = await getUserId();
-  const today = getTodayDate();
-
-  await supabase
-    .from("daily_insights")
-    .upsert(
-      { user_id: userId, logged_date: today, insight },
-      { onConflict: "user_id,logged_date" }
-    );
 }
 
 export function buildMealSummary(meals: LoggedMeal[]) {
@@ -614,4 +572,41 @@ export function getFoodEmoji(name: string): string {
   if (n.includes("sweet") || n.includes("kheer") || n.includes("halwa") || n.includes("jalebi") || n.includes("gulab"))
     return "🍮";
   return "🥗";
+}
+
+// Deterministic, zero-cost insight generated purely from today's actual
+// numbers vs goals — no external AI call, no quota, no staleness. Always
+// instant, always matches the real logged data.
+export function generateInsight(totals: {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}): string {
+  const calorieRatio = totals.calories / CALORIE_GOAL;
+  const proteinRatio = totals.protein / MACRO_GOALS.protein;
+  const carbRatio = totals.carbs / MACRO_GOALS.carbs;
+  const fatRatio = totals.fat / MACRO_GOALS.fat;
+  const remainingCalories = Math.max(Math.round(CALORIE_GOAL - totals.calories), 0);
+  const remainingProtein = Math.max(Math.round((MACRO_GOALS.protein - totals.protein) * 10) / 10, 0);
+
+  if (calorieRatio > 1.15) {
+    return `Namaste! You're at ${totals.calories} kcal today, a bit over your ${CALORIE_GOAL} kcal goal. Try keeping the next meal lighter and protein-focused — dal, paneer, or sprouts work well.`;
+  }
+  if (fatRatio > 1.3 && calorieRatio < 1.15) {
+    return `Namaste! Today's fat (${totals.fat}g) is well above your ${MACRO_GOALS.fat}g target. Your next meal could go easy on fried and oily items.`;
+  }
+  if (proteinRatio < 0.5 && calorieRatio > 0.3) {
+    return `Namaste! Protein is trailing a bit — ${totals.protein}g so far against a ${MACRO_GOALS.protein}g goal. A bowl of dal, paneer, curd, or sprouted moong would help close that gap.`;
+  }
+  if (carbRatio > 1.2 && proteinRatio < 0.7) {
+    return `Namaste! Carbs (${totals.carbs}g) are ahead of protein today. Pairing your next roti or rice with a solid dal or paneer dish would balance things out.`;
+  }
+  if (calorieRatio < 0.15) {
+    return `Namaste! Light start to the day so far. Keep logging as you eat — the picture will fill in nicely by evening.`;
+  }
+  if (proteinRatio >= 0.9 && calorieRatio <= 1.05) {
+    return `Namaste! Great balance today — protein (${totals.protein}g) is right on track and calories are well within goal. Keep this rhythm going!`;
+  }
+  return `Namaste! You're at ${totals.calories} kcal and ${totals.protein}g protein so far (goal: ${CALORIE_GOAL} kcal, ${MACRO_GOALS.protein}g protein). About ${remainingCalories} kcal and ${remainingProtein}g protein left — aim to keep the next meal balanced.`;
 }
