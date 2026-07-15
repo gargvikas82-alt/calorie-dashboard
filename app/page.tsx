@@ -9,12 +9,11 @@ import {
   MACRO_GOALS,
   type DayTotal,
   type FoodItem,
-  buildMealSummary,
   clearTodayMeals,
   computeTotals,
   deleteFoodItem,
+  generateInsight,
   getAllFoodItems,
-  getCachedInsight,
   getFoodEmoji,
   getLast7DaysTotals,
   getMacroTrafficColor,
@@ -22,7 +21,6 @@ import {
   getStreak,
   getWindowColor,
   loadTodayMeals,
-  saveCachedInsight,
   updateFoodItem,
   type LoggedMeal,
 } from "@/lib/meals";
@@ -558,89 +556,21 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
   );
 }
 
-function TodaysInsight({ meals, hasMeals }: { meals: LoggedMeal[]; hasMeals: boolean }) {
-  const [insight, setInsight] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasFetched = useRef(false);
-
-  const fetchInsight = useCallback(
-    async (forceRefresh = false) => {
-      if (!hasMeals) return;
-      setLoading(true);
-      setError(null);
-
-      try {
-        if (!forceRefresh) {
-          const cached = await getCachedInsight();
-          if (cached) {
-            setInsight(cached.insight);
-            setLoading(false);
-            return;
-          }
-        }
-
-        const summary = buildMealSummary(meals);
-        const res = await fetch("/api/insight", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(summary),
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to fetch insight");
-        setInsight(data.insight);
-        await saveCachedInsight(data.insight);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [meals, hasMeals]
-  );
-
-  useEffect(() => {
-    if (!hasMeals) {
-      hasFetched.current = false;
-      setInsight(null);
-      setError(null);
-      return;
-    }
-    if (!hasFetched.current) {
-      hasFetched.current = true;
-      fetchInsight(false);
-    }
-  }, [hasMeals, fetchInsight]);
-
+function TodaysInsight({
+  totals,
+  hasMeals,
+}: {
+  totals: { calories: number; protein: number; carbs: number; fat: number };
+  hasMeals: boolean;
+}) {
   if (!hasMeals) return null;
+
+  const insight = generateInsight(totals);
 
   return (
     <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-900">🤖 Today&apos;s Insight</h2>
-        <button
-          type="button"
-          onClick={() => fetchInsight(true)}
-          disabled={loading}
-          className="rounded-lg border border-green-200 bg-white px-2.5 py-1 text-base font-medium text-[#166534] shadow-sm transition-colors hover:bg-green-50 disabled:opacity-50"
-        >
-          Refresh insight
-        </button>
-      </div>
-
-      {loading && (
-        <div className="flex items-center gap-3 py-4">
-          <div className="animate-spin-slow h-5 w-5 rounded-full border-2 border-green-200 border-t-[#166534]" />
-          <p className="text-lg text-gray-500">AI is thinking...</p>
-        </div>
-      )}
-
-      {!loading && error && <p className="text-lg text-red-600">{error}</p>}
-
-      {!loading && insight && !error && (
-        <p className="animate-fade-slide-up text-lg leading-relaxed text-gray-700">{insight}</p>
-      )}
+      <h2 className="mb-3 text-xl font-semibold text-gray-900">📊 Today&apos;s Insight</h2>
+      <p className="text-lg leading-relaxed text-gray-700">{insight}</p>
     </section>
   );
 }
@@ -841,7 +771,7 @@ export default function Dashboard() {
 
             {weekTotals.length > 0 && <WeeklyTrend days={weekTotals} goal={CALORIE_GOAL} />}
 
-            <TodaysInsight meals={meals} hasMeals={hasMeals} />
+            <TodaysInsight totals={totals} hasMeals={hasMeals} />
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">
