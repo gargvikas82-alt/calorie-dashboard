@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import AuthButton from "@/components/AuthButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { supabase } from "@/lib/supabase-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -162,7 +163,15 @@ function CalorieRing({
             <stop offset="100%" stopColor="#dc2626" />
           </linearGradient>
         </defs>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={stroke}
+          className="text-gray-200 dark:text-slate-700/60"
+        />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -177,8 +186,8 @@ function CalorieRing({
         />
       </svg>
       <div className="absolute text-center">
-        <p className="text-5xl font-bold text-gray-900">{displayCalories}</p>
-        <p className="text-lg text-gray-500">/ {goal} kcal</p>
+        <p className="text-5xl font-bold text-gray-900 dark:text-slate-50">{displayCalories}</p>
+        <p className="text-lg text-gray-500 dark:text-slate-400">/ {goal} kcal</p>
       </div>
     </div>
   );
@@ -187,9 +196,9 @@ function CalorieRing({
 function StreakBadge({ streak }: { streak: number }) {
   if (streak <= 0) return null;
   return (
-    <div className="animate-fade-slide-up flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-1.5 shadow-sm">
+    <div className="animate-fade-slide-up flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-1.5 shadow-sm dark:border-orange-500/30 dark:from-orange-500/10 dark:to-amber-500/10">
       <span className="text-xl">🔥</span>
-      <span className="text-lg font-semibold text-orange-700">
+      <span className="text-lg font-semibold text-orange-700 dark:text-orange-400">
         {streak} day{streak > 1 ? "s" : ""}
       </span>
     </div>
@@ -247,20 +256,20 @@ function MacroBar({
 
   return (
     <div
-      className={`animate-macro-slide-in rounded-xl bg-white/50 ${visible ? "opacity-100" : ""}`}
+      className={`animate-macro-slide-in rounded-xl bg-white/50 dark:bg-slate-800/30 ${visible ? "opacity-100" : ""}`}
       style={{ animationDelay: `${stagger}ms` }}
     >
       <button type="button" onClick={onToggle} className="w-full text-left" aria-expanded={expanded}>
         <div className="mb-1 flex justify-between text-lg">
-          <span className="font-medium text-gray-700">
+          <span className="font-medium text-gray-700 dark:text-slate-200">
             {icon} {label}
           </span>
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-slate-400">
             {consumed}g / {goal}g
-            <span className="ml-1 text-base text-gray-400">{expanded ? "▲" : "▼"}</span>
+            <span className="ml-1 text-base text-gray-400 dark:text-slate-500">{expanded ? "▲" : "▼"}</span>
           </span>
         </div>
-        <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-slate-700/50">
           <div
             className="h-full rounded-full"
             style={{ width: `${width}%`, backgroundColor: color, transition: "width 1.2s cubic-bezier(0.4, 0, 0.2, 1)" }}
@@ -272,15 +281,20 @@ function MacroBar({
         <div className="macro-expand-inner">
           <ul className="space-y-1.5 pt-2">
             {contributors.length === 0 ? (
-              <li className="text-base text-gray-400">No contributions yet</li>
+              <li className="text-base text-gray-400 dark:text-slate-500">No contributions yet</li>
             ) : (
               contributors.map((item) => (
-                <li key={item.id} className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-base">
-                  <span className="text-gray-700">
+                <li
+                  key={item.id}
+                  className="flex justify-between rounded-lg bg-green-50/80 px-2.5 py-1.5 text-base dark:bg-slate-700/40"
+                >
+                  <span className="text-gray-700 dark:text-slate-200">
                     {getFoodEmoji(item.name)} {item.name}
-                    {item.isEstimated && <span className="ml-1 text-xs text-amber-600">(est.)</span>}
+                    {item.isEstimated && (
+                      <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">(est.)</span>
+                    )}
                   </span>
-                  <span className="font-medium text-gray-600">{item[macroKey]}g</span>
+                  <span className="font-medium text-gray-600 dark:text-slate-300">{item[macroKey]}g</span>
                 </li>
               ))
             )}
@@ -317,8 +331,8 @@ function MacroDoughnut({
   if (total === 0) {
     return (
       <div className="flex flex-col items-center py-2">
-        <div className="flex h-32 w-32 items-center justify-center rounded-full border-[18px] border-gray-100">
-          <span className="text-base text-gray-400">No data</span>
+        <div className="flex h-32 w-32 items-center justify-center rounded-full border-[18px] border-gray-100 dark:border-slate-700/50">
+          <span className="text-base text-gray-400 dark:text-slate-500">No data</span>
         </div>
       </div>
     );
@@ -330,7 +344,15 @@ function MacroDoughnut({
     <div className="flex flex-col items-center gap-3">
       <div className="relative">
         <svg width={size} height={size}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f3f4f6" strokeWidth={stroke} />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            className="text-gray-100 dark:text-slate-700/50"
+          />
           {segments.map((seg) => {
             const pct = seg.value / total;
             const dash = pct * circumference;
@@ -355,13 +377,13 @@ function MacroDoughnut({
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold text-gray-900">{total}g</span>
-          <span className="text-sm text-gray-400">total macros</span>
+          <span className="text-2xl font-bold text-gray-900 dark:text-slate-50">{total}g</span>
+          <span className="text-sm text-gray-400 dark:text-slate-500">total macros</span>
         </div>
       </div>
       <div className="flex flex-wrap justify-center gap-3">
         {segments.map((seg) => (
-          <div key={seg.label} className="flex items-center gap-1.5 text-base text-gray-600">
+          <div key={seg.label} className="flex items-center gap-1.5 text-base text-gray-600 dark:text-slate-300">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
             {seg.label} <span className="font-medium">{Math.round((seg.value / total) * 100)}%</span>
           </div>
@@ -377,9 +399,9 @@ function WeeklyTrend({ days, goal }: { days: DayTotal[]; goal: number }) {
   const hasAnyData = days.some((d) => d.calories > 0);
 
   return (
-    <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
-      <h2 className="mb-1 text-xl font-semibold text-gray-900">Last 7 Days</h2>
-      <p className="mb-4 text-base text-gray-500">
+    <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg dark:border-slate-700/50 dark:from-slate-800/40 dark:to-slate-800/20 dark:shadow-black/20 dark:backdrop-blur-xl">
+      <h2 className="mb-1 text-xl font-semibold text-gray-900 dark:text-slate-50">Last 7 Days</h2>
+      <p className="mb-4 text-base text-gray-500 dark:text-slate-400">
         {hasAnyData ? "Your calorie trend this week" : "Ready for some wins? Start tracking, it's easy!"}
       </p>
 
@@ -391,24 +413,28 @@ function WeeklyTrend({ days, goal }: { days: DayTotal[]; goal: number }) {
 
           return (
             <div key={day.date} className="flex flex-1 flex-col items-center gap-1.5">
-              <span className="text-sm font-medium text-gray-500">
+              <span className="text-sm font-medium text-gray-500 dark:text-slate-400">
                 {day.calories > 0 ? day.calories : ""}
               </span>
               <div className="flex w-full flex-1 items-end">
                 <div
                   className={`w-full rounded-t-lg transition-all duration-700 ease-out ${
                     day.calories === 0
-                      ? "bg-gray-100"
+                      ? "bg-gray-100 dark:bg-slate-700/40"
                       : overGoal
-                        ? "bg-orange-400"
+                        ? "bg-orange-400 dark:bg-orange-500"
                         : isToday
-                          ? "bg-[#166534]"
-                          : "bg-green-300"
+                          ? "bg-[#166534] dark:bg-emerald-500"
+                          : "bg-green-300 dark:bg-emerald-700/60"
                   }`}
                   style={{ height: `${heightPct}%`, minHeight: day.calories > 0 ? 6 : 4 }}
                 />
               </div>
-              <span className={`text-base font-medium ${isToday ? "text-[#166534]" : "text-gray-400"}`}>
+              <span
+                className={`text-base font-medium ${
+                  isToday ? "text-[#166534] dark:text-emerald-400" : "text-gray-400 dark:text-slate-500"
+                }`}
+              >
                 {day.dayLabel}
               </span>
             </div>
@@ -477,20 +503,20 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
 
   if (editing) {
     return (
-      <li className="rounded-xl border border-[#166534]/30 bg-white p-3 shadow-md">
+      <li className="rounded-xl border border-[#166534]/30 bg-white p-3 shadow-md dark:border-emerald-500/30 dark:bg-slate-800">
         <form onSubmit={handleSaveEdit} className="space-y-2">
           <input
             type="text"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534]"
+            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534] dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-emerald-500"
             placeholder="Food name"
           />
           <input
             type="number"
             value={editCalories}
             onChange={(e) => setEditCalories(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534]"
+            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-lg outline-none focus:border-[#166534] dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-emerald-500"
             placeholder="Calories"
             min={1}
           />
@@ -498,7 +524,7 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 rounded-lg bg-[#166534] py-2 text-base font-semibold text-white disabled:opacity-50"
+              className="flex-1 rounded-lg bg-[#166534] py-2 text-base font-semibold text-white disabled:opacity-50 dark:bg-emerald-600"
             >
               {saving ? "Saving..." : "Save"}
             </button>
@@ -509,7 +535,7 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
                 setEditName(item.name);
                 setEditCalories(String(item.calories));
               }}
-              className="flex-1 rounded-lg border border-gray-200 py-2 text-base font-medium text-gray-600"
+              className="flex-1 rounded-lg border border-gray-200 py-2 text-base font-medium text-gray-600 dark:border-slate-600 dark:text-slate-300"
             >
               Cancel
             </button>
@@ -522,31 +548,41 @@ function MealLogItem({ item, onChanged }: { item: FoodItem; onChanged: () => voi
   return (
     <li className={`relative overflow-hidden rounded-xl ${deleting ? "animate-fade-out-delete" : ""}`}>
       <div
-        className="rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200"
+        className="rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-md transition-transform duration-200 dark:border-slate-700/60 dark:bg-slate-800/60"
         style={{ transform: `translateX(${swipeX}px)` }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
         <div className="flex items-start justify-between gap-2">
-          <span className="text-lg text-gray-800">
+          <span className="text-lg text-gray-800 dark:text-slate-100">
             {getFoodEmoji(item.name)} {item.name}
           </span>
           <div className="flex shrink-0 items-center gap-1">
-            <button type="button" onClick={() => setEditing(true)} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Edit">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="rounded p-1 text-lg opacity-60 hover:opacity-100"
+              aria-label="Edit"
+            >
               ✏️
             </button>
-            <button type="button" onClick={handleDelete} className="rounded p-1 text-lg opacity-60 hover:opacity-100" aria-label="Delete">
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="rounded p-1 text-lg opacity-60 hover:opacity-100"
+              aria-label="Delete"
+            >
               🗑️
             </button>
           </div>
         </div>
         <div className="mt-1 flex items-center gap-2">
-          <p className="text-base text-gray-500">
+          <p className="text-base text-gray-500 dark:text-slate-400">
             {item.calories} kcal · {item.protein}g protein
           </p>
           {item.isEstimated && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
               Estimated
             </span>
           )}
@@ -568,9 +604,9 @@ function TodaysInsight({
   const insight = generateInsight(totals);
 
   return (
-    <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg">
-      <h2 className="mb-3 text-xl font-semibold text-gray-900">📊 Today&apos;s Insight</h2>
-      <p className="text-lg leading-relaxed text-gray-700">{insight}</p>
+    <section className="mb-6 rounded-2xl border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/80 p-5 shadow-lg dark:border-emerald-500/20 dark:from-emerald-500/10 dark:to-emerald-500/5 dark:shadow-black/20 dark:backdrop-blur-xl">
+      <h2 className="mb-3 text-xl font-semibold text-gray-900 dark:text-slate-50">📊 Today&apos;s Insight</h2>
+      <p className="text-lg leading-relaxed text-gray-700 dark:text-slate-300">{insight}</p>
     </section>
   );
 }
@@ -578,12 +614,12 @@ function TodaysInsight({
 function MealCard({ meal, onChanged }: { meal: LoggedMeal; onChanged: () => void }) {
   const colors = getWindowColor(meal.type);
   return (
-    <div className="w-[300px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg">
+    <div className="w-[300px] shrink-0 snap-start rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-4 shadow-lg dark:border-slate-700/50 dark:from-slate-800/40 dark:to-slate-800/20 dark:shadow-black/20 dark:backdrop-blur-xl">
       <div className="mb-3 flex items-center justify-between">
         <span className={`inline-block rounded-full px-3 py-1 text-base font-semibold text-white ${colors.activeBg}`}>
           {meal.type}
         </span>
-        <span className="text-base font-medium text-gray-400">{meal.time}</span>
+        <span className="text-base font-medium text-gray-400 dark:text-slate-500">{meal.time}</span>
       </div>
       <ul className="space-y-2">
         {meal.items.map((item) => (
@@ -683,16 +719,17 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-white to-[#f0fdf4] pb-24">
+    <div className="relative min-h-screen bg-gradient-to-b from-white to-[#f0fdf4] pb-24 dark:from-slate-950 dark:to-slate-900">
       {showConfetti && <ConfettiBurst />}
 
       <div className="mx-auto w-full max-w-[375px] px-4 py-6">
         <header className="mb-6 flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Today</h1>
-            <p className="text-lg text-gray-500">Indian vegetarian meals</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-slate-50">Today</h1>
+            <p className="text-lg text-gray-500 dark:text-slate-400">Indian vegetarian meals</p>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <AuthButton />
           </div>
         </header>
@@ -704,7 +741,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={handleClearToday}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-base font-medium text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:text-red-600"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-base font-medium text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:text-red-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-red-500/40 dark:hover:text-red-400"
               >
                 Clear today
               </button>
@@ -713,9 +750,11 @@ export default function Dashboard() {
         )}
 
         {!loadingMeals && signedIn === false && (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-center shadow-lg">
-            <p className="text-lg font-medium text-amber-800">Sign in to start tracking your meals.</p>
-            <p className="mt-1 text-base text-amber-700">
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-center shadow-lg dark:border-amber-500/30 dark:bg-amber-500/10">
+            <p className="text-lg font-medium text-amber-800 dark:text-amber-300">
+              Sign in to start tracking your meals.
+            </p>
+            <p className="mt-1 text-base text-amber-700 dark:text-amber-400/80">
               Use the Google sign-in button above — your data is saved to your account.
             </p>
           </div>
@@ -723,20 +762,20 @@ export default function Dashboard() {
 
         {loadingMeals && (
           <div className="mb-6 flex justify-center py-10">
-            <div className="animate-spin-slow h-6 w-6 rounded-full border-2 border-green-200 border-t-[#166534]" />
+            <div className="animate-spin-slow h-6 w-6 rounded-full border-2 border-green-200 border-t-[#166534] dark:border-slate-700 dark:border-t-emerald-500" />
           </div>
         )}
 
         {!loadingMeals && signedIn && (
           <>
-            <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-6 shadow-lg">
+            <section className="mb-6 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-6 shadow-lg dark:border-slate-700/50 dark:from-slate-800/40 dark:to-slate-800/20 dark:shadow-black/20 dark:backdrop-blur-xl">
               <CalorieRing consumed={totals.calories} goal={CALORIE_GOAL} animate={mounted} />
               {nearGoal && (
-                <p className="animate-fade-slide-up mt-3 text-center text-lg font-semibold text-orange-600">
+                <p className="animate-fade-slide-up mt-3 text-center text-lg font-semibold text-orange-600 dark:text-orange-400">
                   🎉 Goal almost reached!
                 </p>
               )}
-              <p className="mt-3 text-center text-lg text-gray-500">
+              <p className="mt-3 text-center text-lg text-gray-500 dark:text-slate-400">
                 {CALORIE_GOAL - totals.calories > 0
                   ? `${CALORIE_GOAL - totals.calories} kcal remaining`
                   : totals.calories > 0
@@ -745,8 +784,8 @@ export default function Dashboard() {
               </p>
             </section>
 
-            <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg">
-              <h2 className="text-xl font-semibold text-gray-900">Macros</h2>
+            <section className="mb-6 space-y-4 rounded-2xl border border-green-100/60 bg-gradient-to-br from-white to-green-50 p-5 shadow-lg dark:border-slate-700/50 dark:from-slate-800/40 dark:to-slate-800/20 dark:shadow-black/20 dark:backdrop-blur-xl">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-50">Macros</h2>
               {MACRO_CONFIG.map((macro) => (
                 <MacroBar
                   key={macro.key}
@@ -763,8 +802,10 @@ export default function Dashboard() {
                 />
               ))}
 
-              <div className="border-t border-green-100/80 pt-4">
-                <p className="mb-3 text-center text-sm font-medium uppercase tracking-wide text-gray-400">Macro split</p>
+              <div className="border-t border-green-100/80 pt-4 dark:border-slate-700/50">
+                <p className="mb-3 text-center text-sm font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                  Macro split
+                </p>
                 <MacroDoughnut protein={totals.protein} carbs={totals.carbs} fat={totals.fat} animate={mounted} />
               </div>
             </section>
@@ -775,14 +816,14 @@ export default function Dashboard() {
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">Today&apos;s timeline</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-50">Today&apos;s timeline</h2>
                 {meals.length > 1 && (
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => scrollTimeline("left")}
                       aria-label="Scroll timeline left"
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl text-[#166534] shadow-md active:scale-90"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl text-[#166534] shadow-md active:scale-90 dark:bg-slate-800 dark:text-emerald-400"
                     >
                       ←
                     </button>
@@ -790,7 +831,7 @@ export default function Dashboard() {
                       type="button"
                       onClick={() => scrollTimeline("right")}
                       aria-label="Scroll timeline right"
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-[#166534] text-2xl text-white shadow-md active:scale-90"
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-[#166534] text-2xl text-white shadow-md active:scale-90 dark:bg-emerald-600"
                     >
                       →
                     </button>
@@ -798,7 +839,7 @@ export default function Dashboard() {
                 )}
               </div>
               {!hasMeals && (
-                <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-lg text-gray-500 shadow-lg">
+                <p className="rounded-2xl border border-dashed border-gray-200 bg-gradient-to-br from-white to-green-50 px-4 py-8 text-center text-lg text-gray-500 shadow-lg dark:border-slate-700 dark:from-slate-800/40 dark:to-slate-800/20 dark:text-slate-400">
                   Nothing logged yet. Tap + to add what you just ate.
                 </p>
               )}
@@ -818,7 +859,7 @@ export default function Dashboard() {
         <Link
           href="/log"
           aria-label="Log a meal"
-          className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg"
+          className="animate-gentle-pulse fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#166534] text-3xl font-light text-white shadow-lg dark:bg-emerald-600"
         >
           +
         </Link>
